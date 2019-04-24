@@ -2,7 +2,6 @@ apiVersion: controller.gitlab.com/v1alpha1
 kind: GitLab
 metadata:
   name: demo
-  namespace: crossplane-system
 spec:
   domain: my-domain.io
   hostSuffix: demo
@@ -10,4 +9,6 @@ spec:
   providerRef:
     name: demo-gcp
     namespace: crossplane-system
+    kind: provider
+    apiVersion: gcp.crossplane.io/v1alpha1
   reclaimPolicy: delete

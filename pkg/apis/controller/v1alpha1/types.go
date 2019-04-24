@@ -163,8 +163,10 @@ func (in *GitLab) SetPending(reason, msg string) {
 
 // SetReady a convenience method to set object status
 func (in *GitLab) SetReady() {
-	in.Status.UnsetAllConditions()
-	in.Status.SetReady()
+	if !in.Status.IsReady() {
+		in.Status.UnsetAllConditions()
+		in.Status.SetReady()
+	}
 	in.Status.State = xpcorev1alpha1.Ready
 }
 

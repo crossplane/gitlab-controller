@@ -90,8 +90,18 @@ func (b *resourceClaimStatusBuilder) withReadyStatus() *resourceClaimStatusBuild
 	return b
 }
 
+func (b *resourceClaimStatusBuilder) withCreatingStatus() *resourceClaimStatusBuilder {
+	b.SetCreating()
+	return b
+}
+
 func (b *resourceClaimStatusBuilder) withFailedStatus(rsn, msg string) *resourceClaimStatusBuilder {
 	b.SetFailed(rsn, msg)
+	return b
+}
+
+func (b *resourceClaimStatusBuilder) withCredentialsSecretRef(name string) *resourceClaimStatusBuilder {
+	b.CredentialsSecretRef = corev1.LocalObjectReference{Name: name}
 	return b
 }
 

@@ -30,6 +30,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/crossplaneio/gitlab-controller/pkg/apis/controller/v1alpha1"
+	"github.com/crossplaneio/gitlab-controller/pkg/logging"
 )
 
 const (
@@ -41,12 +42,17 @@ const (
 
 	resourceAnnotationKey = "resource"
 
-	errorFmtFailedToListResourceClasses      = "failed to list resource classes: [%s/%s, %s]"
-	errorFmtResourceClassNotFound            = "resource class not found for provider: [%s/%s, %s]"
-	errorFmtFailedToRetrieveConnectionSecret = "failed to retrieve connection secret: %s"
-	errorFmtFailedToFindResourceClass        = "failed to find %s resource class: %+v"
-	errorFmtFailedToRetrieveInstance         = "failed to retrieve %s instance: %s"
-	errorFmtFailedToCreate                   = "failed to create %s: %s"
+	errorFmtFailedToListResourceClasses        = "failed to list resource classes: [%s/%s, %s]"
+	errorFmtResourceClassNotFound              = "resource class not found for provider: [%s/%s, %s]"
+	errorFmtNotSupportedProvider               = "not supported provider: %s"
+	errorFmtFailedToRetrieveConnectionSecret   = "failed to retrieve connection secret: %s"
+	errorFmtFailedToUpdateConnectionSecret     = "failed to update connection secret: %s"
+	errorFmtFailedToUpdateConnectionSecretData = "failed to update connection secret data: %s"
+	errorFmtFailedToFindResourceClass          = "failed to find %s resource class: %+v"
+	errorFmtFailedToRetrieveInstance           = "failed to retrieve %s instance: %s"
+	errorFmtFailedToCreate                     = "failed to create %s: %s"
+
+	errorResourceStatusIsNotFound = "resource status is not found"
 
 	reasonResourceProcessingFailure = "fail to process resource"
 	reasonHasFailedResources        = "has failed resourceClaims"
@@ -59,7 +65,7 @@ var (
 	reconcileFailure = reconcile.Result{Requeue: true}
 )
 
-// resourceReconciler interface provide abstrac operations supported by all component reconciles
+// resourceReconciler interface provides abstract operations supported by all component reconciles
 type resourceReconciler interface {
 	// reconcile a given component
 	reconcile(context.Context) error
@@ -73,6 +79,7 @@ type resourceReconciler interface {
 	getClaimConnectionSecret(context.Context) (*corev1.Secret, error)
 }
 
+// resourceClassFinder interface
 type resourceClassFinder interface {
 	find(ctx context.Context, provider corev1.ObjectReference, resource string) (*corev1.ObjectReference, error)
 }
@@ -179,11 +186,14 @@ func (r *gitLabReconciler) update(ctx context.Context) error {
 func (r *gitLabReconciler) reconcile(ctx context.Context) (reconcile.Result, error) {
 	r.SetEndpoint(r.GetEndpoint())
 
+	log.V(logging.Debug).Info("reconciling resource claims")
 	res, err := r.reconcileClaims(ctx, r.resourceClaims)
 	if res != reconcileSuccess {
+		log.Error(err, "claim reconciliation failed")
 		return res, err
 	}
 
+	log.V(logging.Debug).Info("reconciling applications")
 	return r.reconcileApplication(ctx, r.resourceClaims)
 }
 
@@ -214,7 +224,7 @@ func (r *gitLabReconciler) reconcileClaims(ctx context.Context, claims []resourc
 
 func (r *gitLabReconciler) reconcileApplication(ctx context.Context, resources []resourceReconciler) (reconcile.Result, error) {
 	for _, rs := range resources {
-		log.Info(rs.getClaimKind(), "ready", rs.isReady())
+		log.V(logging.Debug).Info(rs.getClaimKind(), "ready", rs.isReady())
 	}
 	r.SetReady()
 	return reconcileSuccess, r.update(ctx)
