@@ -20,67 +20,45 @@ import (
 	"context"
 	"time"
 
-	"github.com/pkg/errors"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller"
-	"sigs.k8s.io/controller-runtime/pkg/handler"
-	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	"github.com/crossplaneio/gitlab-controller/pkg/apis/controller/v1alpha1"
 	"github.com/crossplaneio/gitlab-controller/pkg/logging"
 )
 
 const (
-	controllerName      = "gitlab-controller"
-	reconcileTimeout    = 5 * time.Minute
-	requeueAfterSuccess = 1 * time.Minute
+	controllerName   = "gitlab-controller"
+	reconcileTimeout = 5 * time.Minute
 )
 
-var (
-	log = logging.Logger.WithName("controller." + controllerName)
-)
-
-// Add creates a new GitLab Controller and adds it to the Manager with default RBAC. The Manager will set fields on the Controller
-// and Start it when the Manager is Started.
-func Add(mgr manager.Manager) error {
-	r := &Reconciler{Client: mgr.GetClient()}
-
-	// Create a new controller
-	c, err := controller.New("gitlab-controller", mgr, controller.Options{Reconciler: r})
-	if err != nil {
-		return err
-	}
-
-	// Watch for changes to GitLab
-	return c.Watch(&source.Kind{Type: &v1alpha1.GitLab{}}, &handler.EnqueueRequestForObject{})
-}
-
-var _ reconcile.Reconciler = &Reconciler{}
+var log = logging.Logger.WithName("controller." + controllerName)
 
 // Reconciler reconciles a GitLab object
 type Reconciler struct {
 	client.Client
+	scheme *runtime.Scheme
+	mill   reconcilerMill
 }
 
 // Reconcile reads that state of the cluster for a GitLab object and makes changes based on the state read
 // and what is in the GitLab.Spec
 // Automatically generate RBAC rules to allow the Controller to read and write Deployments
-// +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=apps,resources=deployments/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=controller.gitlab.io,resources=gitlabs,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=controller.gitlab.io,resources=gitlabs/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=apps,resourceClaims=deployments,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=apps,resourceClaims=deployments/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=controller.gitlab.io,resourceClaims=gitlabs,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=controller.gitlab.io,resourceClaims=gitlabs/status,verbs=get;update;patch
 func (r *Reconciler) Reconcile(request reconcile.Request) (reconcile.Result, error) {
-	log.V(logging.Debug).Info("reconciling", "kind", v1alpha1.GitLabKind, "request", request)
+	log.V(logging.Debug).Info("reconciling", "request", request)
 
 	ctx, cancel := context.WithTimeout(context.Background(), reconcileTimeout)
 	defer cancel()
 
 	// Fetch the GitLab instance
 	instance := &v1alpha1.GitLab{}
-	err := r.Get(context.TODO(), request.NamespacedName, instance)
+	err := r.Get(ctx, request.NamespacedName, instance)
 	if err != nil {
 		if kerrors.IsNotFound(err) {
 			// Object not found, return.  Created objects are automatically garbage collected.
@@ -91,9 +69,7 @@ func (r *Reconciler) Reconcile(request reconcile.Request) (reconcile.Result, err
 		return reconcile.Result{}, err
 	}
 
-	// TODO: implement GitLab controller reconciler logic and set appropriate status
-	instance.SetReady()
-	instance.Status.Endpoint = instance.GetEndpoint()
-
-	return reconcile.Result{RequeueAfter: requeueAfterSuccess}, errors.Wrapf(r.Status().Update(ctx, instance), "failed to update object status")
+	return r.mill.newReconciler(instance, r.Client).reconcile(ctx)
 }
+
+var _ reconcile.Reconciler = &Reconciler{}

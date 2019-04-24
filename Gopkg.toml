@@ -44,3 +44,11 @@ required = [
 name = "gopkg.in/fsnotify.v1"
 source = "https://github.com/fsnotify/fsnotify.git"
 version="v1.4.7"
+
+[[constraint]]
+  name = "github.com/google/go-cmp"
+  version = "0.3.0"
+
+[[constraint]]
+  branch = "master"
+  name = "github.com/crossplaneio/crossplane"

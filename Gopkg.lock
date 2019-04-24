@@ -45,15 +45,19 @@
   version = "v1.0.0"
 
 [[projects]]
-  digest = "1:1814c16647fff43a33d5b2d0fc7f0566d5eb1a025173a1e4222159edf78dda21"
+  branch = "master"
+  digest = "1:8652001da6afc06607152e1dd45ef98f4b381f3578e752e53a46179227615dc7"
   name = "github.com/crossplaneio/crossplane"
   packages = [
+    "pkg/apis/cache/v1alpha1",
+    "pkg/apis/compute/v1alpha1",
     "pkg/apis/core/v1alpha1",
+    "pkg/apis/storage/v1alpha1",
+    "pkg/apis/workload/v1alpha1",
     "pkg/util",
   ]
   pruneopts = "UT"
-  revision = "bed87f6156097491b39b3deb67fb8ad23a401f61"
-  version = "v0.2.0"
+  revision = "71afaef1b676f6ea64d0ad2e84bec0a96810606f"
 
 [[projects]]
   digest = "1:ffe9824d294da03b391f44e1ae8281281b4afc1bdaa9588c9097785e3af10cec"
@@ -73,14 +77,6 @@
   pruneopts = "UT"
   revision = "b9bbc5664f49b6deec52393bd68f39830687a347"
   version = "v2.9.3"
-
-[[projects]]
-  digest = "1:f1f2bd73c025d24c3b93abf6364bccb802cf2fdedaa44360804c67800e8fab8d"
-  name = "github.com/evanphx/json-patch"
-  packages = ["."]
-  pruneopts = "UT"
-  revision = "72bf35d0ff611848c1dc9df0f976c81192392fa5"
-  version = "v4.1.0"
 
 [[projects]]
   digest = "1:2cd7915ab26ede7d95b8749e6b1f933f1c6d5398030684e6505940a10f31cfda"
@@ -162,6 +158,21 @@
   pruneopts = "UT"
   revision = "4030bb1f1f0c35b30ca7009e9ebd06849dd45306"
   version = "v1.0.0"
+
+[[projects]]
+  digest = "1:010d46ea3c1e730897e53058d1013a963f3f987675dda87df64f891b945281db"
+  name = "github.com/google/go-cmp"
+  packages = [
+    "cmp",
+    "cmp/cmpopts",
+    "cmp/internal/diff",
+    "cmp/internal/flags",
+    "cmp/internal/function",
+    "cmp/internal/value",
+  ]
+  pruneopts = "UT"
+  revision = "6f77996f0c42f7b84e5a2b252227263f93432e9b"
+  version = "v0.3.0"
 
 [[projects]]
   digest = "1:a6181aca1fd5e27103f9a920876f29ac72854df7345a39f3b01e61c8c94cc8af"
@@ -767,7 +778,7 @@
   version = "kubernetes-1.13.1"
 
 [[projects]]
-  digest = "1:ab98c5e23e157eda7ec983e8a01fac88d1630166bdb182ee61e3c47dea70350a"
+  digest = "1:2508fdb15980b755155be71d30f77db058bd20282efca8d577eba270b674552a"
   name = "k8s.io/client-go"
   packages = [
     "discovery",
@@ -815,7 +826,6 @@
     "rest",
     "rest/watch",
     "restmapper",
-    "testing",
     "third_party/forked/golang/template",
     "tools/auth",
     "tools/cache",
@@ -898,7 +908,7 @@
   revision = "6b3d3b2d5666c5912bab8b7bf26bf50f75a8f887"
 
 [[projects]]
-  digest = "1:b27154c2a91d1d3adf28894c60eae5650d1f1e9e1bcba6e943623c6c2beccb24"
+  digest = "1:4e97dc637c467531240326f56e253c6d42b519424b6a89d80664ef0f3ed4f721"
   name = "sigs.k8s.io/controller-runtime"
   packages = [
     "pkg/cache",
@@ -906,7 +916,6 @@
     "pkg/client",
     "pkg/client/apiutil",
     "pkg/client/config",
-    "pkg/client/fake",
     "pkg/controller",
     "pkg/envtest",
     "pkg/envtest/printer",
@@ -985,10 +994,17 @@
   analyzer-name = "dep"
   analyzer-version = 1
   input-imports = [
+    "github.com/crossplaneio/crossplane/pkg/apis/cache/v1alpha1",
+    "github.com/crossplaneio/crossplane/pkg/apis/compute/v1alpha1",
     "github.com/crossplaneio/crossplane/pkg/apis/core/v1alpha1",
+    "github.com/crossplaneio/crossplane/pkg/apis/storage/v1alpha1",
+    "github.com/crossplaneio/crossplane/pkg/apis/workload/v1alpha1",
+    "github.com/crossplaneio/crossplane/pkg/util",
     "github.com/emicklei/go-restful",
     "github.com/go-logr/logr",
     "github.com/go-test/deep",
+    "github.com/google/go-cmp/cmp",
+    "github.com/google/go-cmp/cmp/cmpopts",
     "github.com/onsi/ginkgo",
     "github.com/onsi/gomega",
     "github.com/pkg/errors",
@@ -998,6 +1014,7 @@
     "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1",
     "k8s.io/apimachinery/pkg/api/errors",
     "k8s.io/apimachinery/pkg/apis/meta/v1",
+    "k8s.io/apimachinery/pkg/apis/meta/v1/unstructured",
     "k8s.io/apimachinery/pkg/runtime",
     "k8s.io/apimachinery/pkg/runtime/schema",
     "k8s.io/apimachinery/pkg/types",
@@ -1009,7 +1026,6 @@
     "k8s.io/code-generator/cmd/deepcopy-gen",
     "sigs.k8s.io/controller-runtime/pkg/client",
     "sigs.k8s.io/controller-runtime/pkg/client/config",
-    "sigs.k8s.io/controller-runtime/pkg/client/fake",
     "sigs.k8s.io/controller-runtime/pkg/controller",
     "sigs.k8s.io/controller-runtime/pkg/envtest",
     "sigs.k8s.io/controller-runtime/pkg/handler",

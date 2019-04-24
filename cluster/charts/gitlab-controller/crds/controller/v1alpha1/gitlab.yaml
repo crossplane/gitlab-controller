@@ -4,7 +4,7 @@ metadata:
   creationTimestamp: null
   labels:
     controller-tools.k8s.io: "1.0"
-  name: gitlabs.controller.gitlab.io
+  name: gitlabs.controller.gitlab.com
 spec:
   additionalPrinterColumns:
   - JSONPath: .status.state
@@ -13,7 +13,7 @@ spec:
   - JSONPath: .status.endpoint
     name: ENDPOINT
     type: string
-  group: controller.gitlab.io
+  group: controller.gitlab.com
   names:
     kind: GitLab
     plural: gitlabs
@@ -37,6 +37,12 @@ spec:
           type: object
         spec:
           properties:
+            clusterNamespace:
+              description: ClusterNamespace
+              type: string
+            clusterSelector:
+              description: ClusterSelector label based
+              type: object
             domain:
               description: Domain which will contain records to resolve gitlab, registry,
                 and minio (if enabled) to the appropriate IP
