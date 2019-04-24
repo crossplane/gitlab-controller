@@ -1,0 +1,3 @@
+version: "1"
+domain: gitlab.io
+repo: github.com/crossplaneio/gitlab-controller

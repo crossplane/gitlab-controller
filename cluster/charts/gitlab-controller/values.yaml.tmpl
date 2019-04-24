@@ -1,0 +1,14 @@
+replicas: 1
+
+deploymentStrategy: RollingUpdate
+
+image:
+  repository: crossplane/gitlab-controller
+  tag: %%VERSION%%
+  pullPolicy: Always
+
+args:
+- '--debug'
+
+imagePullSecrets:
+- dockerhub

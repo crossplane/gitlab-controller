@@ -1,0 +1,85 @@
+apiVersion: apiextensions.k8s.io/v1beta1
+kind: CustomResourceDefinition
+metadata:
+  creationTimestamp: null
+  labels:
+    controller-tools.k8s.io: "1.0"
+  name: gitlabs.controller.gitlab.io
+spec:
+  additionalPrinterColumns:
+  - JSONPath: .status.state
+    name: STATE
+    type: string
+  - JSONPath: .status.endpoint
+    name: ENDPOINT
+    type: string
+  group: controller.gitlab.io
+  names:
+    kind: GitLab
+    plural: gitlabs
+  scope: Namespaced
+  subresources:
+    status: {}
+  validation:
+    openAPIV3Schema:
+      properties:
+        apiVersion:
+          description: 'APIVersion defines the versioned schema of this representation
+            of an object. Servers should convert recognized schemas to the latest
+            internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/api-conventions.md#resources'
+          type: string
+        kind:
+          description: 'Kind is a string value representing the REST resource this
+            object represents. Servers may infer this from the endpoint the client
+            submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/api-conventions.md#types-kinds'
+          type: string
+        metadata:
+          type: object
+        spec:
+          properties:
+            domain:
+              description: Domain which will contain records to resolve gitlab, registry,
+                and minio (if enabled) to the appropriate IP
+              type: string
+            email:
+              description: Email address to register TLS certificates
+              type: string
+            hostSuffix:
+              description: HostSuffix appended to domain records, i.e. `gitlab-suffix.domain`,
+                default - no suffix
+              type: string
+            port:
+              description: Port gitlab service port, default - none
+              type: uint
+            protocol:
+              description: Protocol http or https, default - https
+              type: string
+            providerRef:
+              description: ProviderRef cloud provider reference
+              type: object
+            reclaimPolicy:
+              description: ReclaimPolicy controls application cleanup
+              type: string
+          required:
+          - domain
+          - email
+          - providerRef
+          type: object
+        status:
+          properties:
+            endpoint:
+              description: Endpoint for GitLab service
+              type: string
+            state:
+              description: State of the GitLab service - string representation of
+                the latest active condition This is provided for convenience for displaying
+                status gitlab
+              type: string
+          type: object
+  version: v1alpha1
+status:
+  acceptedNames:
+    kind: ""
+    plural: ""
+  conditions: []
+  storedVersions: []
