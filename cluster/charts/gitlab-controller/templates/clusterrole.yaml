@@ -1,0 +1,40 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ template "name" . }}
+  labels:
+    app: {{ template "name" . }}
+    chart: {{ template "chart" . }}
+    release: {{ .Release.Name }}
+    heritage: {{ .Release.Service }}
+rules:
+- apiGroups:
+    - controller.gitlab.io
+  resources:
+    - gitlabs
+    - gitlabs/status
+  verbs:
+    - "*"
+- apiGroups:
+    - ""
+  resources:
+    - secrets
+  verbs:
+    - get
+    - list
+    - watch
+    - create
+    - update
+- apiGroups:
+    - cache.crossplane.io
+    - compute.crossplane.io
+    - core.crossplane.io
+    - storage.crossplane.io
+    - aws.crossplane.io
+    - cache.aws.crossplane.io
+    - azure.crossplane.io
+    - gcp.crossplane.io
+  resources:
+    - "*"
+  verbs:
+    - "*"
