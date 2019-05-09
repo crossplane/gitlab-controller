@@ -218,7 +218,7 @@ _GitLabController_ is “very” opinionated about what _GitLab _application sho
 
 
 ```yaml
-apiVersion: gitlab.crossplane.io/v1alpha1
+apiVersion: controller.gitlab.com/v1alpha1
 kind: GitLab
 metadata:
   name: gitlab-demo
