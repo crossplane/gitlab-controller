@@ -49,7 +49,10 @@ func (c *gcpSecretConnectionCreator) create(s *corev1.Secret) error {
 		ProjectID string `json:"project_id"`
 		Email     string `json:"client_email"`
 	}{}
-	data := s.Data[xpcorev1alpha1.ResourceCredentialsTokenKey]
+	data, ok := s.Data[xpcorev1alpha1.ResourceCredentialsTokenKey]
+	if !ok {
+		return errors.Errorf(errorFmtEmptyToken, xpcorev1alpha1.ResourceCredentialsTokenKey)
+	}
 	if err := json.Unmarshal(data, creds); err != nil {
 		return errors.Wrapf(err, errorFmtFailedToParse, xpcorev1alpha1.ResourceCredentialsTokenKey)
 	}

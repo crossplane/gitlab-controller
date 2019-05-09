@@ -28,12 +28,14 @@ import (
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/helm/pkg/chartutil"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/crossplaneio/gitlab-controller/pkg/apis/controller/v1alpha1"
 	"github.com/crossplaneio/gitlab-controller/pkg/test"
-	"github.com/crossplaneio/gitlab-controller/pkg/util"
 )
+
+var _ resourceReconciler = &kubernetesReconciler{}
 
 func Test_kubernetesReconciler_reconcile(t *testing.T) {
 	ctx := context.TODO()
@@ -127,7 +129,7 @@ func Test_kubernetesReconciler_reconcile(t *testing.T) {
 					},
 				},
 			},
-			want: want{err: errors.Wrapf(testError, errorFmtFailedToCreate, kubernetesClaimKind, testKey)},
+			want: want{err: errors.Wrapf(testError, errorFmtFailedToCreate, kubernetesClaimKind, testKey.String()+"-"+xpcomputev1alpha1.KubernetesClusterKind)},
 		},
 		"FailToRetrieveObject-Other": {
 			fields: fields{
@@ -145,7 +147,7 @@ func Test_kubernetesReconciler_reconcile(t *testing.T) {
 					},
 				},
 			},
-			want: want{err: errors.Wrapf(testError, errorFmtFailedToRetrieveInstance, kubernetesClaimKind, testKey)},
+			want: want{err: errors.Wrapf(testError, errorFmtFailedToRetrieveInstance, kubernetesClaimKind, testKey.String()+"-"+xpcomputev1alpha1.KubernetesClusterKind)},
 		},
 		"CreateSuccessful": {
 			fields: fields{
@@ -200,10 +202,10 @@ func Test_kubernetesReconciler_reconcile(t *testing.T) {
 				resourceClassFinder:    tt.fields.finder,
 			}
 			if diff := cmp.Diff(r.reconcile(ctx), tt.want.err, cmpErrors); diff != "" {
-				t.Errorf("kubernetesReconciler.reconcile() error %s", diff)
+				t.Errorf("kubernetesReconciler.reconcile() -got error, +want error: %s", diff)
 			}
-			if diff := cmp.Diff(r.status, tt.want.status, cmp.Comparer(util.EqualConditionedStatus)); diff != "" {
-				t.Errorf("kubernetesReconciler.reconcile() status %s", diff)
+			if diff := cmp.Diff(r.status, tt.want.status, cmp.Comparer(test.EqualConditionedStatus)); diff != "" {
+				t.Errorf("kubernetesReconciler.reconcile() -got status, +want status: %s", diff)
 			}
 		})
 	}
@@ -232,8 +234,9 @@ func Test_kubernetesReconciler_getHelmValues(t *testing.T) {
 		resourceClassFinder    resourceClassFinder
 	}
 	type args struct {
-		ctx    context.Context
-		values map[string]string
+		ctx          context.Context
+		values       chartutil.Values
+		secretPrefix string
 	}
 	tests := map[string]struct {
 		fields fields
@@ -243,10 +246,7 @@ func Test_kubernetesReconciler_getHelmValues(t *testing.T) {
 			fields: fields{
 				baseResourceReconciler: newBaseResourceReconciler(newGitLabBuilder().build(), test.NewMockClient(), "foo"),
 			},
-			args: args{
-				ctx:    context.TODO(),
-				values: make(map[string]string),
-			},
+			args: args{ctx: context.TODO()},
 		},
 	}
 	for name, tt := range tests {
@@ -255,7 +255,7 @@ func Test_kubernetesReconciler_getHelmValues(t *testing.T) {
 				baseResourceReconciler: tt.fields.baseResourceReconciler,
 				resourceClassFinder:    tt.fields.resourceClassFinder,
 			}
-			if err := r.getHelmValues(tt.args.ctx, tt.args.values); err != nil {
+			if err := r.getHelmValues(tt.args.ctx, tt.args.values, tt.args.secretPrefix); err != nil {
 				t.Errorf("kubernetesReconciler.getHelmValues() error = %v", err)
 			}
 		})

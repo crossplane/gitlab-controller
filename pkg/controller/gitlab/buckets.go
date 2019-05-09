@@ -18,7 +18,6 @@ package gitlab
 
 import (
 	"context"
-	"fmt"
 	"strings"
 
 	xpcorev1alpha1 "github.com/crossplaneio/crossplane/pkg/apis/core/v1alpha1"
@@ -27,15 +26,18 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/helm/pkg/chartutil"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/crossplaneio/gitlab-controller/pkg/apis/controller/v1alpha1"
+	"github.com/crossplaneio/gitlab-controller/pkg/controller/gitlab/values"
 )
 
 const (
 	bucketClaimKind = "bucket"
 
-	errorMsgEmptyConnectionSecret = "empty connection secret"
+	errorMsgEmptyConnectionSecret = "connection secret has no data"
+	errorFmtEmptyToken            = "connection secret is missing required key %s"
 	errorFmtFailedToParse         = "failed to parse %s"
 	errorFmtFailedToSave          = "failed to save %s"
 
@@ -114,13 +116,13 @@ type bucketReconciler struct {
 	helmValuesFunction  helmValuesFunction
 }
 
-func newBucketReconciler(gitlab *v1alpha1.GitLab, client client.Client, name string, helmValuesFunction helmValuesFunction) *bucketReconciler {
+func newBucketReconciler(gitlab *v1alpha1.GitLab, client client.Client, name string, fn helmValuesFunction) *bucketReconciler {
 	base := newBaseResourceReconciler(gitlab, client, name)
 	return &bucketReconciler{
 		baseResourceReconciler: base,
 		resourceClassFinder:    base,
 		secretTransformer:      newGitLabSecretTransformer(base),
-		helmValuesFunction:     helmValuesFunction,
+		helmValuesFunction:     fn,
 	}
 }
 
@@ -130,16 +132,17 @@ func (r *bucketReconciler) reconcile(ctx context.Context) error {
 		return errors.Wrapf(err, errorFmtFailedToFindResourceClass, r.getClaimKind(), r.GetProviderRef())
 	}
 
-	meta := r.newObjectMeta(r.componentName)
+	meta := r.newObjectMeta(xpstoragev1alpha1.BucketKind, r.componentName)
 
+	// TODO(negz): Set connection secret override to something unique.
 	bucket := &xpstoragev1alpha1.Bucket{
 		ObjectMeta: meta,
 		Spec: xpstoragev1alpha1.BucketSpec{
 			ClassRef: ref,
-			Name:     strings.Join([]string{meta.Name, "%s"}, "-"),
+			Name:     strings.Join([]string{meta.GetName(), "%s"}, "-"),
 		},
 	}
-	key := r.newNamespacedName(r.componentName)
+	key := types.NamespacedName{Namespace: bucket.GetNamespace(), Name: bucket.GetName()}
 
 	if err := r.client.Get(ctx, key, bucket); err != nil {
 		if kerrors.IsNotFound(err) {
@@ -159,39 +162,57 @@ func (r *bucketReconciler) getClaimKind() string {
 	return bucketClaimKind + "-" + r.componentName
 }
 
-func (r *bucketReconciler) getHelmValues(ctx context.Context, values map[string]string) error {
-	return r.baseResourceReconciler.loadHelmValues(ctx, values, r.helmValuesFunction)
+func (r *bucketReconciler) getHelmValues(ctx context.Context, dst chartutil.Values, secretPrefix string) error {
+	return r.baseResourceReconciler.loadHelmValues(ctx, dst, r.helmValuesFunction, secretPrefix)
 }
-
-const (
-	helmValueBucketFmt           = "global.appConfig.%s.bucket"
-	helmValueConnectionSecretFmt = "global.appConfig.%s.connection.secret"
-	helmValueConnectionKeyFmt    = "global.appConfig.%s.connection.key"
-	helmValueTaskRunnerSecret    = "gitlab.task-runner.backups.objectStorage.config.secret"
-	helmValueTaskRunnerKey       = "gitlab.task-runner.backups.objectStorage.config.key"
-	helmValueBackupsTempBucket   = "global.appConfig.backups.tmpBucket"
-)
 
 // bucketConnectionHelmValues map of helm set key/value pairs
 // https://docs.gitlab.com/charts/advanced/external-object-storage/index.html#lfs-artifacts-uploads-packages-external-diffs-pseudonymizer
-func bucketConnectionHelmValues(values map[string]string, name string, secret *corev1.Secret) {
-	values[fmt.Sprintf(helmValueBucketFmt, name)] = string(secret.Data[xpcorev1alpha1.ResourceCredentialsSecretEndpointKey])
-	values[fmt.Sprintf(helmValueConnectionSecretFmt, name)] = secret.GetName()
-	values[fmt.Sprintf(helmValueConnectionKeyFmt, name)] = connectionKey
+func bucketConnectionHelmValues(dst chartutil.Values, s *corev1.Secret, bucketName, secretPrefix string) error {
+	return values.Merge(dst, chartutil.Values{
+		valuesKeyGlobal: chartutil.Values{
+			valuesKeyAppConfig: chartutil.Values{
+				bucketName: chartutil.Values{
+					"bucket":     string(s.Data[xpcorev1alpha1.ResourceCredentialsSecretEndpointKey]),
+					"connection": chartutil.Values{"secret": secretPrefix + s.GetName(), "key": connectionKey},
+				},
+			},
+		},
+	})
 }
 
 // bucketBackupsHelmValues map of helm set key/value pairs
 // https://docs.gitlab.com/charts/advanced/external-object-storage/index.html#backups
-func bucketBackupsHelmValues(values map[string]string, name string, secret *corev1.Secret) {
-	values[fmt.Sprintf(helmValueBucketFmt, name)] = string(secret.Data[xpcorev1alpha1.ResourceCredentialsSecretEndpointKey])
-	values[helmValueTaskRunnerSecret] = secret.GetName()
-	values[helmValueTaskRunnerKey] = configKey
+func bucketBackupsHelmValues(dst chartutil.Values, s *corev1.Secret, bucketName, secretPrefix string) error {
+	return values.Merge(dst, chartutil.Values{
+		valuesKeyGlobal: chartutil.Values{
+			valuesKeyAppConfig: chartutil.Values{
+				bucketName: chartutil.Values{
+					"bucket": string(s.Data[xpcorev1alpha1.ResourceCredentialsSecretEndpointKey]),
+				},
+			},
+		},
+		valuesKeyGitlab: chartutil.Values{
+			"task-runner": chartutil.Values{
+				"backups": chartutil.Values{
+					"objectStorage": chartutil.Values{
+						"config": chartutil.Values{"secret": secretPrefix + s.GetName(), "key": connectionKey},
+					},
+				},
+			},
+		},
+	})
 }
 
 // bucketBackupsTempHelmValues map of helm set key/value pairs
 // https://docs.gitlab.com/charts/advanced/external-object-storage/index.html#backups
-func bucketBackupsTempHelmValues(values map[string]string, name string, _ *corev1.Secret) {
-	values[helmValueBackupsTempBucket] = name
+func bucketBackupsTempHelmValues(dst chartutil.Values, _ *corev1.Secret, bucketName, _ string) error {
+	return values.Merge(dst, chartutil.Values{
+		valuesKeyGlobal: chartutil.Values{
+			valuesKeyAppConfig: chartutil.Values{
+				// Note bucketName plays a different role in this function.
+				"backups": chartutil.Values{"tmpBucket": bucketName},
+			},
+		},
+	})
 }
-
-var _ resourceReconciler = &bucketReconciler{}

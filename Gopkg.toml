@@ -52,3 +52,11 @@ version="v1.4.7"
 [[constraint]]
   branch = "master"
   name = "github.com/crossplaneio/crossplane"
+
+[[override]]
+  name = "github.com/russross/blackfriday"
+  version = "1.5.2"
+
+[[override]]
+  name = "k8s.io/apiserver"
+  version = "kubernetes-1.13.1"

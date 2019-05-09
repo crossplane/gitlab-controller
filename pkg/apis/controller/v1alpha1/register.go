@@ -42,6 +42,9 @@ var (
 	// SchemeGroupVersion is group version used to register these objects
 	SchemeGroupVersion = schema.GroupVersion{Group: Group, Version: Version}
 
+	// GitLabGroupVersionKind is the GVK of a GitLab.
+	GitLabGroupVersionKind = schema.GroupVersionKind{Group: Group, Version: Version, Kind: GitLabKind}
+
 	// SchemeBuilder is used to add go types to the GroupVersionKind scheme
 	SchemeBuilder = &scheme.Builder{GroupVersion: SchemeGroupVersion}
 

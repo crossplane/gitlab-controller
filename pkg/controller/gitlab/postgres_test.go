@@ -26,14 +26,17 @@ import (
 	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/helm/pkg/chartutil"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/crossplaneio/gitlab-controller/pkg/apis/controller/v1alpha1"
 	"github.com/crossplaneio/gitlab-controller/pkg/test"
-	"github.com/crossplaneio/gitlab-controller/pkg/util"
 )
+
+var _ resourceReconciler = &postgresReconciler{}
 
 func Test_postgresReconciler_reconcile(t *testing.T) {
 	ctx := context.TODO()
@@ -83,7 +86,7 @@ func Test_postgresReconciler_reconcile(t *testing.T) {
 					},
 				},
 			},
-			want: want{err: errors.Wrapf(testError, errorFmtFailedToCreate, postgresqlClaimKind, testKey)},
+			want: want{err: errors.Wrapf(testError, errorFmtFailedToCreate, postgresqlClaimKind, testKey.String()+"-"+xpstoragev1alpha1.PostgreSQLInstanceKind)},
 		},
 		"FailToRetrieveObject-Other": {
 			fields: fields{
@@ -101,7 +104,7 @@ func Test_postgresReconciler_reconcile(t *testing.T) {
 					},
 				},
 			},
-			want: want{err: errors.Wrapf(testError, errorFmtFailedToRetrieveInstance, postgresqlClaimKind, testKey)},
+			want: want{err: errors.Wrapf(testError, errorFmtFailedToRetrieveInstance, postgresqlClaimKind, testKey.String()+"-"+xpstoragev1alpha1.PostgreSQLInstanceKind)},
 		},
 		"CreateSuccessful": {
 			fields: fields{
@@ -156,10 +159,10 @@ func Test_postgresReconciler_reconcile(t *testing.T) {
 				resourceClassFinder:    tt.fields.finder,
 			}
 			if diff := cmp.Diff(r.reconcile(ctx), tt.want.err, cmpErrors); diff != "" {
-				t.Errorf("postgresReconciler.reconcile() error %s", diff)
+				t.Errorf("postgresReconciler.reconcile() -got error, +want error: %s", diff)
 			}
-			if diff := cmp.Diff(r.status, tt.want.status, cmp.Comparer(util.EqualConditionedStatus)); diff != "" {
-				t.Errorf("postgresReconciler.reconcile() status %s", diff)
+			if diff := cmp.Diff(r.status, tt.want.status, cmp.Comparer(test.EqualConditionedStatus)); diff != "" {
+				t.Errorf("postgresReconciler.reconcile() -got status, +want status: %s", diff)
 			}
 		})
 	}
@@ -183,20 +186,25 @@ func Test_newPostgresReconciler(t *testing.T) {
 }
 
 func Test_postgresReconciler_getHelmValues(t *testing.T) {
-	ctx := context.TODO()
 	type fields struct {
 		baseResourceReconciler *baseResourceReconciler
 		resourceClassFinder    resourceClassFinder
 	}
+	type args struct {
+		ctx          context.Context
+		values       chartutil.Values
+		secretPrefix string
+	}
 	tests := map[string]struct {
 		fields fields
-		args   map[string]string
+		args   args
 		want   error
 	}{
 		"Failure": {
 			fields: fields{
 				baseResourceReconciler: newBaseResourceReconciler(newGitLabBuilder().build(), test.NewMockClient(), testBucket),
 			},
+			args: args{ctx: context.TODO()},
 			want: errors.New(errorResourceStatusIsNotFound),
 		},
 	}
@@ -206,7 +214,7 @@ func Test_postgresReconciler_getHelmValues(t *testing.T) {
 				baseResourceReconciler: tt.fields.baseResourceReconciler,
 				resourceClassFinder:    tt.fields.resourceClassFinder,
 			}
-			if diff := cmp.Diff(r.getHelmValues(ctx, tt.args), tt.want, cmpErrors); diff != "" {
+			if diff := cmp.Diff(r.getHelmValues(tt.args.ctx, tt.args.values, tt.args.secretPrefix), tt.want, cmpErrors); diff != "" {
 				t.Errorf("postgresReconciler.getHelmValues() error %s", diff)
 			}
 		})
@@ -214,69 +222,60 @@ func Test_postgresReconciler_getHelmValues(t *testing.T) {
 }
 
 func Test_postgresHelmValues(t *testing.T) {
+	endpoint := "http://example.org"
+	user := "cooluser"
+	password := "verycoolsecret"
+	secretName := "coolSecret"
+	secretPrefix := "coolPrefix-"
+
 	type args struct {
-		values map[string]string
-		name   string
-		secret *corev1.Secret
+		values       chartutil.Values
+		secret       *corev1.Secret
+		name         string
+		secretPrefix string
 	}
 	type want struct {
-		panic bool
-		data  map[string]string
+		values chartutil.Values
 	}
 	tests := map[string]struct {
 		args args
 		want want
 	}{
-		"Failure": {
-			args: args{},
-			want: want{panic: true},
-		},
-		"Success-NoValues": {
+		"EmptyValues": {
 			args: args{
-				values: make(map[string]string),
-				name:   "foo",
-				secret: &corev1.Secret{Data: map[string][]byte{}},
-			},
-			want: want{
-				data: map[string]string{
-					helmValuePsqlHostKey:     "",
-					helmValuePsqlUsernameKey: "",
-					helmValuePsqlDatabaseKey: "postgres",
-					helmPostgresqlInstall:    "false",
-				},
-			},
-		},
-		"Success-WithValue": {
-			args: args{
-				values: make(map[string]string),
-				name:   "foo",
+				values: chartutil.Values{},
 				secret: &corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{Name: secretName},
 					Data: map[string][]byte{
-						xpcorev1alpha1.ResourceCredentialsSecretEndpointKey: []byte("bar"),
-						xpcorev1alpha1.ResourceCredentialsSecretUserKey:     []byte("foo"),
+						xpcorev1alpha1.ResourceCredentialsSecretEndpointKey: []byte(endpoint),
+						xpcorev1alpha1.ResourceCredentialsSecretUserKey:     []byte(user),
+						xpcorev1alpha1.ResourceCredentialsSecretPasswordKey: []byte(password),
 					},
 				},
+				secretPrefix: secretPrefix,
 			},
 			want: want{
-				data: map[string]string{
-					helmValuePsqlHostKey:     "bar",
-					helmValuePsqlUsernameKey: "foo",
-					helmValuePsqlDatabaseKey: "postgres",
-					helmPostgresqlInstall:    "false",
+				values: chartutil.Values{
+					valuesKeyGlobal: chartutil.Values{
+						valuesKeyPSQL: chartutil.Values{
+							"host":     "http://example.org",
+							"database": defaultPostgresDatabase,
+							"username": user,
+							"password": chartutil.Values{
+								"secret": secretPrefix + secretName,
+								"key":    xpcorev1alpha1.ResourceCredentialsSecretPasswordKey,
+							},
+						},
+					},
 				},
 			},
 		},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			defer func() {
-				if r := recover(); r != nil && !tt.want.panic {
-					t.Errorf("posgresHelmValues() panic: %v", r)
-				}
-			}()
-			postgresHelmValues(tt.args.values, tt.args.name, tt.args.secret)
-			if diff := cmp.Diff(tt.args.values, tt.want.data); diff != "" {
-				t.Errorf("posgresHelmValues() %s", diff)
+			postgresHelmValues(tt.args.values, tt.args.secret, tt.args.name, tt.args.secretPrefix)
+			if diff := cmp.Diff(tt.want.values, tt.args.values); diff != "" {
+				t.Errorf("postgresHelmValues() -want values, +got values: %s", diff)
 			}
 		})
 	}

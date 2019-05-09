@@ -14,20 +14,18 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package util
+package test
 
 import (
 	"testing"
-
-	"github.com/crossplaneio/gitlab-controller/pkg/test"
 
 	xpcorev1alpha1 "github.com/crossplaneio/crossplane/pkg/apis/core/v1alpha1"
 )
 
 func TestEqualConditionedStatus(t *testing.T) {
-	readyFailed := test.NewConditionedStatusBuilder().WithReadyCondition().WithFailedCondition("foo", "bar").Build()
-	failedReady := test.NewConditionedStatusBuilder().WithFailedCondition("foo", "bar").WithReadyCondition().Build()
-	failedUnset := test.NewConditionedStatusBuilder().WithFailedCondition("foo", "bar").WithReadyCondition().
+	readyFailed := NewConditionedStatusBuilder().WithReadyCondition().WithFailedCondition("foo", "bar").Build()
+	failedReady := NewConditionedStatusBuilder().WithFailedCondition("foo", "bar").WithReadyCondition().Build()
+	failedUnset := NewConditionedStatusBuilder().WithFailedCondition("foo", "bar").WithReadyCondition().
 		WithUnsetCondition(xpcorev1alpha1.Failed).Build()
 	type args struct {
 		x xpcorev1alpha1.ConditionedStatus
