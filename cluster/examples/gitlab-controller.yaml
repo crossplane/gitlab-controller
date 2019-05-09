@@ -1,12 +1,13 @@
-apiVersion: controller.gitlab.io/v1alpha1
+apiVersion: controller.gitlab.com/v1alpha1
 kind: GitLab
 metadata:
   name: demo
   namespace: crossplane-system
 spec:
   domain: my-domain.io
-  email: me@my-domain.io
   hostSuffix: demo
+  email: me@my-domain.io
   providerRef:
     name: demo-gcp
+    namespace: crossplane-system
   reclaimPolicy: delete

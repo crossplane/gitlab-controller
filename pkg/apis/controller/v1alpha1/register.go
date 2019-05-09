@@ -31,10 +31,11 @@ import (
 
 // Kubernetes Group, Version, and Kind metadata.
 const (
-	Group      = "controller.gitlab.io"
-	Version    = "v1alpha1"
-	APIVersion = Group + "/" + Version
-	GitLabKind = "gitlab"
+	Group                = "controller.gitlab.com"
+	Version              = "v1alpha1"
+	APIVersion           = Group + "/" + Version
+	GitLabKind           = "gitlab"
+	GitLabKindAPIVersion = GitLabKind + "." + APIVersion
 )
 
 var (

@@ -20,12 +20,15 @@ import (
 	"testing"
 
 	xpcorev1alpha1 "github.com/crossplaneio/crossplane/pkg/apis/core/v1alpha1"
-	"github.com/go-test/deep"
+	"github.com/google/go-cmp/cmp"
 	"github.com/onsi/gomega"
 	"golang.org/x/net/context"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/crossplaneio/gitlab-controller/pkg/util"
 
 	"github.com/crossplaneio/gitlab-controller/pkg/test"
 )
@@ -56,27 +59,28 @@ func TestMain(m *testing.M) {
 }
 
 func TestStorageGitLab(t *testing.T) {
+	ctx := context.TODO()
 	created := &GitLab{ObjectMeta: testMeta}
 	g := gomega.NewGomegaWithT(t)
 
 	// Test Create
 	fetched := &GitLab{}
-	g.Expect(c.Create(context.TODO(), created)).NotTo(gomega.HaveOccurred())
+	g.Expect(c.Create(ctx, created)).NotTo(gomega.HaveOccurred())
 
-	g.Expect(c.Get(context.TODO(), testKey, fetched)).NotTo(gomega.HaveOccurred())
+	g.Expect(c.Get(ctx, testKey, fetched)).NotTo(gomega.HaveOccurred())
 	g.Expect(fetched).To(gomega.Equal(created))
 
 	// Test Updating the Labels
 	updated := fetched.DeepCopy()
 	updated.Labels = map[string]string{"hello": "world"}
-	g.Expect(c.Update(context.TODO(), updated)).NotTo(gomega.HaveOccurred())
+	g.Expect(c.Update(ctx, updated)).NotTo(gomega.HaveOccurred())
 
-	g.Expect(c.Get(context.TODO(), testKey, fetched)).NotTo(gomega.HaveOccurred())
+	g.Expect(c.Get(ctx, testKey, fetched)).NotTo(gomega.HaveOccurred())
 	g.Expect(fetched).To(gomega.Equal(updated))
 
 	// Test Delete
-	g.Expect(c.Delete(context.TODO(), fetched)).NotTo(gomega.HaveOccurred())
-	g.Expect(c.Get(context.TODO(), testKey, fetched)).To(gomega.HaveOccurred())
+	g.Expect(c.Delete(ctx, fetched)).NotTo(gomega.HaveOccurred())
+	g.Expect(c.Get(ctx, testKey, fetched)).To(gomega.HaveOccurred())
 }
 
 const (
@@ -84,6 +88,7 @@ const (
 	creatingType = xpcorev1alpha1.Creating
 	deletingType = xpcorev1alpha1.Deleting
 	failedType   = xpcorev1alpha1.Failed
+	pendingType  = xpcorev1alpha1.Pending
 )
 
 var (
@@ -91,6 +96,7 @@ var (
 	creating = xpcorev1alpha1.NewCondition(creatingType, "", "")
 	deleting = xpcorev1alpha1.NewCondition(deletingType, "", "")
 	failed   = xpcorev1alpha1.NewCondition(failedType, "foo", "bar")
+	pending  = xpcorev1alpha1.NewCondition(pendingType, "fooz", "barz")
 )
 
 type gl GitLab
@@ -106,17 +112,15 @@ func (gl *gl) withStatusState(s xpcorev1alpha1.Condition) *gl {
 }
 
 type setTestCase struct {
-	name   string
 	gitlab GitLab
 	want   GitLabStatus
 }
 
-func setTestCases(cA, cB xpcorev1alpha1.Condition) []setTestCase {
+func setTestCases(cA, cB xpcorev1alpha1.Condition) map[string]setTestCase {
 	spec := GitLabSpec{}
 
-	return []setTestCase{
-		{
-			name: "NoStatus",
+	return map[string]setTestCase{
+		"NoStatus": {
 			gitlab: GitLab{
 				ObjectMeta: testMeta,
 				Spec:       spec,
@@ -124,8 +128,7 @@ func setTestCases(cA, cB xpcorev1alpha1.Condition) []setTestCase {
 			},
 			want: (&gl{}).withStatusCondition(cA).withStatusState(cA).Status,
 		},
-		{
-			name: "SameStatus",
+		"SameStatus": {
 			gitlab: GitLab{
 				ObjectMeta: testMeta,
 				Spec:       spec,
@@ -133,8 +136,7 @@ func setTestCases(cA, cB xpcorev1alpha1.Condition) []setTestCase {
 			},
 			want: (&gl{}).withStatusCondition(cA).withStatusState(cA).Status,
 		},
-		{
-			name: "DifferentStatus",
+		"DifferentStatus": {
 			gitlab: GitLab{
 				ObjectMeta: testMeta,
 				Spec:       spec,
@@ -146,44 +148,61 @@ func setTestCases(cA, cB xpcorev1alpha1.Condition) []setTestCase {
 }
 
 func TestGitLabSetReady(t *testing.T) {
-	for _, tt := range setTestCases(ready, failed) {
-		t.Run(tt.name, func(t *testing.T) {
+	for name, tt := range setTestCases(ready, failed) {
+		t.Run(name, func(t *testing.T) {
 			tt.gitlab.SetReady()
-			if diff := deep.Equal(tt.gitlab.Status, tt.want); diff != nil {
-				t.Errorf("SetReady() = %v, want %v\n%s", tt.gitlab.Status, tt.want, diff)
+			if name == "DifferentStatus" {
+				tt.want.UnsetCondition(xpcorev1alpha1.Failed)
+			}
+			if diff := cmp.Diff(tt.gitlab.Status, tt.want, cmp.Comparer(util.EqualConditionedStatus)); diff != "" {
+				t.Errorf("SetReady() %s", diff)
 			}
 		})
 	}
 }
 
 func TestGitLabSetCreating(t *testing.T) {
-	for _, tt := range setTestCases(creating, failed) {
-		t.Run(tt.name, func(t *testing.T) {
+	for name, tt := range setTestCases(creating, failed) {
+		t.Run(name, func(t *testing.T) {
 			tt.gitlab.SetCreating()
-			if diff := deep.Equal(tt.gitlab.Status, tt.want); diff != nil {
-				t.Errorf("SetCreating() = %v, want %v\n%s", tt.gitlab.Status, tt.want, diff)
+			if diff := cmp.Diff(tt.gitlab.Status, tt.want); diff != "" {
+				t.Errorf("SetCreating() %s", diff)
 			}
 		})
 	}
 }
 
 func TestGitLabSetDeleting(t *testing.T) {
-	for _, tt := range setTestCases(deleting, failed) {
-		t.Run(tt.name, func(t *testing.T) {
+	for name, tt := range setTestCases(deleting, failed) {
+		t.Run(name, func(t *testing.T) {
 			tt.gitlab.SetDeleting()
-			if diff := deep.Equal(tt.gitlab.Status, tt.want); diff != nil {
-				t.Errorf("SetDeleting() = %v, want %v\n%s", tt.gitlab.Status, tt.want, diff)
+			if diff := cmp.Diff(tt.gitlab.Status, tt.want); diff != "" {
+				t.Errorf("SetDeleting() %s", diff)
 			}
 		})
 	}
 }
 
 func TestGitLabSetFailed(t *testing.T) {
-	for _, tt := range setTestCases(failed, creating) {
-		t.Run(tt.name, func(t *testing.T) {
+	for name, tt := range setTestCases(failed, pending) {
+		t.Run(name, func(t *testing.T) {
 			tt.gitlab.SetFailed("foo", "bar")
-			if diff := deep.Equal(tt.gitlab.Status, tt.want); diff != nil {
-				t.Errorf("SetFailed() = %v, want %v\n%s", tt.gitlab.Status, tt.want, diff)
+			if diff := cmp.Diff(tt.gitlab.Status, tt.want); diff != "" {
+				t.Errorf("SetFailed() %s", diff)
+			}
+		})
+	}
+}
+
+func TestGitLabSetPending(t *testing.T) {
+	for name, tt := range setTestCases(pending, failed) {
+		t.Run(name, func(t *testing.T) {
+			tt.gitlab.SetPending("fooz", "barz")
+			if name == "DifferentStatus" {
+				tt.want.UnsetCondition(xpcorev1alpha1.Failed)
+			}
+			if diff := cmp.Diff(tt.gitlab.Status, tt.want, cmp.Comparer(util.EqualConditionedStatus)); diff != "" {
+				t.Errorf("SetPending() %s", diff)
 			}
 		})
 	}
@@ -211,8 +230,183 @@ func TestGitLabGetEndpoint(t *testing.T) {
 				Spec:       GitLabSpec{Domain: domain, HostSuffix: tt.suffix, Protocol: tt.protocol, Port: tt.port},
 			}
 			got := gl.GetEndpoint()
-			if diff := deep.Equal(got, tt.want); diff != nil {
+			if diff := cmp.Diff(got, tt.want); diff != "" {
 				t.Errorf("GitLab.GetEndpoint() = %v, want %v\n%s", got, tt.want, diff)
+			}
+		})
+	}
+}
+
+func TestGitLab_GetApplicationName(t *testing.T) {
+	tests := map[string]struct {
+		spec GitLabSpec
+		want string
+	}{
+		"NoSuffix":   {spec: GitLabSpec{}, want: ApplicationName},
+		"WithSuffix": {spec: GitLabSpec{HostSuffix: "foo"}, want: ApplicationName + "-foo"},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			gl := &GitLab{
+				Spec: tt.spec,
+			}
+			if got := gl.GetApplicationName(); got != tt.want {
+				t.Errorf("GitLab.GetApplicationName() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGitLab_GetClusterNamespace(t *testing.T) {
+	tests := map[string]struct {
+		spec GitLabSpec
+		want string
+	}{
+		"Default": {spec: GitLabSpec{}, want: "default"},
+		"Custom":  {spec: GitLabSpec{ClusterNamespace: "foo"}, want: "foo"},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			gl := &GitLab{
+				Spec: tt.spec,
+			}
+			if got := gl.GetClusterNamespace(); got != tt.want {
+				t.Errorf("GitLab.GetClusterNamespace() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGitLab_GetClusterSelector(t *testing.T) {
+	tests := map[string]struct {
+		spec GitLabSpec
+		want *metav1.LabelSelector
+	}{
+		"NoSelector": {spec: GitLabSpec{}, want: nil},
+		"Custom":     {spec: GitLabSpec{ClusterSelector: &metav1.LabelSelector{}}, want: &metav1.LabelSelector{}},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			gl := &GitLab{
+				Spec: tt.spec,
+			}
+			got := gl.GetClusterSelector()
+			if diff := cmp.Diff(got, tt.want); diff != "" {
+				t.Errorf("GitLab.GetClusterSelector() %s", diff)
+			}
+		})
+	}
+}
+
+func TestGitLab_GetProviderRef(t *testing.T) {
+	tests := map[string]struct {
+		spec GitLabSpec
+		want corev1.ObjectReference
+	}{
+		"Default": {spec: GitLabSpec{}, want: corev1.ObjectReference{}},
+		"Empty":   {spec: GitLabSpec{ProviderRef: corev1.ObjectReference{}}, want: corev1.ObjectReference{}},
+		"Custom": {
+			spec: GitLabSpec{ProviderRef: corev1.ObjectReference{Name: "foo", Namespace: "bar"}},
+			want: corev1.ObjectReference{Namespace: "bar", Name: "foo"},
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			gl := &GitLab{
+				Spec: tt.spec,
+			}
+			if got := gl.GetProviderRef(); got != tt.want {
+				t.Errorf("GitLab.GetProviderRef() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGitLab_IsReclaimDelete(t *testing.T) {
+	tests := map[string]struct {
+		spec GitLabSpec
+		want bool
+	}{
+		"Default": {spec: GitLabSpec{}, want: false},
+		"Retain":  {spec: GitLabSpec{ReclaimPolicy: xpcorev1alpha1.ReclaimRetain}, want: false},
+		"Delete":  {spec: GitLabSpec{ReclaimPolicy: xpcorev1alpha1.ReclaimDelete}, want: true},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			gl := &GitLab{
+				Spec: tt.spec,
+			}
+			if got := gl.IsReclaimDelete(); got != tt.want {
+				t.Errorf("GitLab.IsReclaimDelete() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGitLab_SetEndpoint(t *testing.T) {
+	type fields struct {
+		endpoint string
+		status   GitLabStatus
+	}
+	tests := map[string]struct {
+		fields fields
+		want   string
+	}{
+		"Default":   {fields: fields{endpoint: "", status: GitLabStatus{}}, want: ""},
+		"SetNew":    {fields: fields{endpoint: "foo", status: GitLabStatus{}}, want: "foo"},
+		"Overwrite": {fields: fields{endpoint: "foo", status: GitLabStatus{Endpoint: "bar"}}, want: "foo"},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			gl := &GitLab{
+				Status: tt.fields.status,
+			}
+			gl.SetEndpoint(tt.fields.endpoint)
+			if diff := cmp.Diff(gl.Status.Endpoint, tt.want); diff != "" {
+				t.Errorf("GitLab.SetEndpoint() %s", diff)
+			}
+		})
+	}
+}
+
+func TestGitLab_ToOwnerReference(t *testing.T) {
+	type fields struct {
+		TypeMeta   metav1.TypeMeta
+		ObjectMeta metav1.ObjectMeta
+	}
+	tests := map[string]struct {
+		fields fields
+		want   metav1.OwnerReference
+	}{
+		"Default": {
+			fields: fields{},
+			want: metav1.OwnerReference{
+				APIVersion: APIVersion,
+				Kind:       GitLabKind,
+			},
+		},
+		"Custom": {
+			fields: fields{
+				TypeMeta: metav1.TypeMeta{
+					APIVersion: "foo",
+				},
+				ObjectMeta: testMeta,
+			},
+			want: metav1.OwnerReference{
+				APIVersion: "foo",
+				Kind:       GitLabKind,
+				Name:       testName,
+			},
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			gl := &GitLab{
+				TypeMeta:   tt.fields.TypeMeta,
+				ObjectMeta: tt.fields.ObjectMeta,
+			}
+			if diff := cmp.Diff(gl.ToOwnerReference(), tt.want); diff != "" {
+				t.Errorf("GitLab.ToOwnerReference() = %s", diff)
 			}
 		})
 	}

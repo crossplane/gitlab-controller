@@ -1,12 +1,17 @@
 # GitLab Controller
 
-[![Build Status](https://jenkinsci.upbound.io/buildStatus/icon?job=gitlab-controller/build/master)](https://jenkinsci.upbound.io/blue/organizations/jenkins/gitlab-controller%2Fbuild/activity)
+[![Build Status](https://jenkinsci.upbound.io/job/crossplane/job/gitlab-controller/job/master/badge/icon)](https://jenkinsci.upbound.io/job/crossplane/job/gitlab-controller/job/master/)
 [![GitHub release](https://img.shields.io/github/release/crossplaneio/gitlab-controller/all.svg?style=flat-square)](https://github.com/crossplaneio/gitlab-controller/releases)
-[![Docker Pulls](https://img.shields.io/docker/pulls/gitlab-controller/gitlab-controller.svg)](https://img.shields.io/docker/pulls/gitlab-controller/gitlab-controller.svg)
+[![Docker Pulls](https://img.shields.io/docker/pulls/crossplane/gitlab-controller.svg)](https://img.shields.io/docker/pulls/gitlab-controller/gitlab-controller.svg)
 [![Go Report Card](https://goreportcard.com/badge/github.com/crossplaneio/gitlab-controller)](https://goreportcard.com/report/github.com/crossplaneio/gitlab-controller)
-[![FOSSA Status](https://app.fossa.io/api/projects/git%2Bgithub.com%2Fcrossplaneio%2Fcrossplane.svg?type=shield)](https://app.fossa.io/projects/git%2Bgithub.com%2Fcrossplaneio%2Fcrossplane?ref=badge_shield)
 [![Slack](https://slack.crossplane.io/badge.svg)](https://slack.crossplane.io)
 [![Twitter Follow](https://img.shields.io/twitter/follow/crossplane_io.svg?style=social&label=Follow)](https://twitter.com/intent/follow?screen_name=crossplane_io&user_id=788180534543339520)
+
+[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=gitlab-controller&metric=alert_status)](https://sonarcloud.io/dashboard?id=gitlab-controller)
+[![Coverage](https://sonarcloud.io/api/project_badges/measure?project=gitlab-controller&metric=coverage)](https://sonarcloud.io/dashboard?id=gitlab-controller)
+[![Maintainability Rating](https://sonarcloud.io/api/project_badges/measure?project=gitlab-controller&metric=sqale_rating)](https://sonarcloud.io/dashboard?id=gitlab-controller)
+[![Reliability Rating](https://sonarcloud.io/api/project_badges/measure?project=gitlab-controller&metric=reliability_rating)](https://sonarcloud.io/dashboard?id=gitlab-controller)
+[![Security Rating](https://sonarcloud.io/api/project_badges/measure?project=gitlab-controller&metric=security_rating)](https://sonarcloud.io/dashboard?id=gitlab-controller)
 
 ## Overview
 GitLab-Controller is Crossplane native application which enables provisioning production-grade GitLab services across 

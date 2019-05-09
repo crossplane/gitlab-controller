@@ -20,14 +20,15 @@ import (
 	"context"
 	"testing"
 
-	xpcorev1alpha1 "github.com/crossplaneio/crossplane/pkg/apis/core/v1alpha1"
-	"github.com/go-test/deep"
+	"github.com/google/go-cmp/cmp"
 	"github.com/pkg/errors"
+	kerrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/crossplaneio/gitlab-controller/pkg/apis/controller"
@@ -46,72 +47,100 @@ var (
 		Name:      testName,
 	}
 
+	testMeta = metav1.ObjectMeta{
+		Namespace: testNamespace,
+		Name:      testName,
+	}
+
 	testRequest = reconcile.Request{NamespacedName: testKey}
+
+	cmpErrors = cmp.Comparer(func(x, y error) bool {
+		if x == nil || y == nil {
+			return x == nil && y == nil
+		}
+		return x.Error() == y.Error()
+	})
 )
 
 func init() {
-	_ = controller.AddToScheme(scheme.Scheme)
+	if err := controller.AddToScheme(scheme.Scheme); err != nil {
+		panic(err)
+	}
 }
 
 func TestReconciler_Reconcile(t *testing.T) {
 	testError := errors.New("test-error")
+	type fields struct {
+		client client.Client
+		mill   reconcilerMill
+	}
 	type want struct {
 		res reconcile.Result
 		err error
 	}
 	tests := []struct {
 		name    string
-		client  client.Client
 		request reconcile.Request
+		fields  fields
 		want    want
 	}{
 		{
-			name:    "ErrorRetrieving NotFound",
-			client:  fake.NewFakeClient(),
+			name:    "ErrorRetrievingNotFound",
 			request: testRequest,
-			want:    want{res: reconcile.Result{}},
-		},
-		{
-			name: "ErrorRetrieving Other",
-			client: &test.MockClient{
-				MockGet: func(ctx context.Context, key client.ObjectKey, obj runtime.Object) error {
-					return testError
+			fields: fields{
+				client: &test.MockClient{
+					MockGet: func(ctx context.Context, key client.ObjectKey, obj runtime.Object) error {
+						return kerrors.NewNotFound(schema.GroupResource{}, "test")
+					},
 				},
 			},
-			request: testRequest,
-			want:    want{res: reconcile.Result{}, err: testError},
+			want: want{res: reconcile.Result{}},
 		},
 		{
-			name: "Success",
-			client: &test.MockClient{
-				MockGet: func(ctx context.Context, key client.ObjectKey, obj runtime.Object) error { return nil },
-				MockStatusUpdate: func(ctx context.Context, obj runtime.Object) error {
-					g, ok := obj.(*v1alpha1.GitLab)
-					if !ok {
-						t.Errorf("Reconciler.Reconcile() unexpected type = %T, want %T", obj, &v1alpha1.GitLab{})
-					}
-					if !g.Status.IsReady() {
-						t.Errorf("Reconciler.Reconcile() invalid status = %v, wantErr %v", g.Status.State,
-							xpcorev1alpha1.Ready)
-					}
-					return nil
+			name:    "ErrorRetrievingOther",
+			request: testRequest,
+			fields: fields{
+				client: &test.MockClient{
+					MockGet: func(ctx context.Context, key client.ObjectKey, obj runtime.Object) error {
+						return testError
+					},
 				},
 			},
+			want: want{res: reconcile.Result{}, err: testError},
+		},
+		{
+			name:    "Success",
 			request: testRequest,
-			want:    want{res: reconcile.Result{RequeueAfter: requeueAfterSuccess}},
+			fields: fields{
+				client: &test.MockClient{
+					MockGet: func(ctx context.Context, key client.ObjectKey, obj runtime.Object) error { return nil },
+				},
+				mill: &mockGitLabReconcilerMill{
+					mockReconciler: func(gl *v1alpha1.GitLab, c client.Client) reconciler {
+						return &mockReconciler{
+							mockReconcile: func(ctx context.Context) (reconcile.Result, error) {
+								return reconcileSuccess, nil
+							},
+						}
+					},
+				},
+			},
+			want: want{res: reconcile.Result{RequeueAfter: requeueAfterOnSuccess}},
 		},
 	}
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			r := &Reconciler{
-				Client: tt.client,
+				Client: tt.fields.client,
+				mill:   tt.fields.mill,
 			}
 			got, err := r.Reconcile(tt.request)
-			if diff := deep.Equal(err, tt.want.err); diff != nil {
-				t.Errorf("Reconciler.Reconcile() error = %v, wantErr %v", err, tt.want.err)
+			if diff := cmp.Diff(err, tt.want.err, cmpErrors); diff != "" {
+				t.Errorf("Reconciler.Reconcile() error %s", diff)
 			}
-			if diff := deep.Equal(got, tt.want.res); diff != nil {
-				t.Errorf("Reconciler.Reconcile() = %v, want %v\n%s", got, tt.want, diff)
+			if diff := cmp.Diff(got, tt.want.res); diff != "" {
+				t.Errorf("Reconciler.Reconcile() %s", diff)
 			}
 		})
 	}

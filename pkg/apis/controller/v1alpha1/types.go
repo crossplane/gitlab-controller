@@ -20,10 +20,15 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/crossplaneio/crossplane/pkg/util"
+
 	xpcorev1alpha1 "github.com/crossplaneio/crossplane/pkg/apis/core/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
+
+// ApplicationName gitlab
+const ApplicationName = "gitlab"
 
 // GitLabSpec defines the desired state of GitLab
 type GitLabSpec struct {
@@ -39,9 +44,15 @@ type GitLabSpec struct {
 	Email string `json:"email"`
 
 	// ProviderRef cloud provider reference
-	ProviderRef corev1.LocalObjectReference `json:"providerRef"`
+	ProviderRef corev1.ObjectReference `json:"providerRef"`
 	// ReclaimPolicy controls application cleanup
 	ReclaimPolicy xpcorev1alpha1.ReclaimPolicy `json:"reclaimPolicy,omitempty"`
+
+	// ClusterSelector label based
+	ClusterSelector *metav1.LabelSelector `json:"clusterSelector,omitempty"`
+
+	// ClusterNamespace
+	ClusterNamespace string `json:"clusterNamespace,omitempty"`
 }
 
 // GitLabStatus defines the observed state of GitLab
@@ -73,28 +84,25 @@ type GitLab struct {
 	Status GitLabStatus `json:"status,omitempty"`
 }
 
-// SetReady a convenience method to set object status
-func (in *GitLab) SetReady() {
-	in.Status.SetReady()
-	in.Status.State = xpcorev1alpha1.Ready
+// GetApplicationName returns "gitlab[-suffix]" if host suffix is provided
+func (in *GitLab) GetApplicationName() string {
+	if sfx := in.Spec.HostSuffix; sfx != "" {
+		return ApplicationName + "-" + sfx
+	}
+	return ApplicationName
 }
 
-// SetCreating a convenience method to set object status
-func (in *GitLab) SetCreating() {
-	in.Status.SetCreating()
-	in.Status.State = xpcorev1alpha1.Creating
+// GetClusterNamespace spec property
+func (in *GitLab) GetClusterNamespace() string {
+	if in.Spec.ClusterNamespace == "" {
+		return "default"
+	}
+	return in.Spec.ClusterNamespace
 }
 
-// SetDeleting a convenience method to set object status
-func (in *GitLab) SetDeleting() {
-	in.Status.SetDeleting()
-	in.Status.State = xpcorev1alpha1.Deleting
-}
-
-// SetFailed a convenience method to set object status
-func (in *GitLab) SetFailed(reason, msg string) {
-	in.Status.SetFailed(reason, msg)
-	in.Status.State = xpcorev1alpha1.Failed
+// GetClusterSelector spec property
+func (in *GitLab) GetClusterSelector() *metav1.LabelSelector {
+	return in.Spec.ClusterSelector
 }
 
 // GetEndpoint returns a gitlab service endpoint
@@ -116,6 +124,63 @@ func (in *GitLab) GetEndpoint() string {
 	}
 
 	return fmt.Sprintf("%s://gitlab%s.%s%s", protocol, suffix, in.Spec.Domain, port)
+}
+
+// GetProviderRef spec property
+func (in *GitLab) GetProviderRef() corev1.ObjectReference {
+	return in.Spec.ProviderRef
+}
+
+// IsReclaimDelete tests reclaim delete policy
+func (in *GitLab) IsReclaimDelete() bool {
+	return in.Spec.ReclaimPolicy == xpcorev1alpha1.ReclaimDelete
+}
+
+// SetCreating a convenience method to set object status
+func (in *GitLab) SetCreating() {
+	in.Status.SetCreating()
+	in.Status.State = xpcorev1alpha1.Creating
+}
+
+// SetDeleting a convenience method to set object status
+func (in *GitLab) SetDeleting() {
+	in.Status.SetDeleting()
+	in.Status.State = xpcorev1alpha1.Deleting
+}
+
+// SetFailed a convenience method to set object status
+func (in *GitLab) SetFailed(reason, msg string) {
+	in.Status.SetFailed(reason, msg)
+	in.Status.State = xpcorev1alpha1.Failed
+}
+
+// SetPending status with reason and message
+func (in *GitLab) SetPending(reason, msg string) {
+	in.Status.UnsetAllConditions()
+	in.Status.SetCondition(xpcorev1alpha1.NewCondition(xpcorev1alpha1.Pending, reason, msg))
+	in.Status.State = xpcorev1alpha1.Pending
+}
+
+// SetReady a convenience method to set object status
+func (in *GitLab) SetReady() {
+	in.Status.UnsetAllConditions()
+	in.Status.SetReady()
+	in.Status.State = xpcorev1alpha1.Ready
+}
+
+// SetEndpoint for this GitLab instance
+func (in *GitLab) SetEndpoint(ep string) {
+	in.Status.Endpoint = ep
+}
+
+// ToOwnerReference converts this object metadata to a new owner reference
+func (in *GitLab) ToOwnerReference() metav1.OwnerReference {
+	return metav1.OwnerReference{
+		APIVersion: util.IfEmptyString(in.APIVersion, APIVersion),
+		Kind:       util.IfEmptyString(in.Kind, GitLabKind),
+		Name:       in.Name,
+		UID:        in.UID,
+	}
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object

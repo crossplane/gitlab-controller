@@ -79,6 +79,9 @@ pipeline {
                             onlyStable: false,
                             sourceEncoding: 'ASCII',
                             zoomCoverageChart: false
+                    script {
+                        sh 'cp _output/tests/linux_amd64/coverage.xml _output/tests/linux_amd64/cobertura.xml'
+                    }
                 }
             }
         }
@@ -109,6 +112,16 @@ pipeline {
                     "-Dsonar.organization=crossplane " +
                     "-Dsonar.sources=. ${scannerParams} "
                 }
+            }
+        }
+
+        stage('Record Coverage') {
+            when { branch 'master' }
+            steps {
+                script {
+                    currentBuild.result = 'SUCCESS'
+                 }
+                step([$class: 'MasterCoverageAction', scmVars: [GIT_URL: env.GIT_URL]])
             }
         }
 
