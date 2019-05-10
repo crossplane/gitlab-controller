@@ -59,6 +59,7 @@ pipeline {
         stage('Unit Tests') {
             steps {
                 sh './build/run make -j\$(nproc) test'
+                sh './build/run make -j\$(nproc) cobertura'
             }
             post {
                 always {
@@ -79,9 +80,6 @@ pipeline {
                             onlyStable: false,
                             sourceEncoding: 'ASCII',
                             zoomCoverageChart: false
-                    script {
-                        sh 'cp _output/tests/linux_amd64/coverage.xml _output/tests/linux_amd64/cobertura.xml'
-                    }
                 }
             }
         }

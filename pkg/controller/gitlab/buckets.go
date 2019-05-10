@@ -22,7 +22,9 @@ import (
 
 	xpstoragev1alpha1 "github.com/crossplaneio/crossplane/pkg/apis/storage/v1alpha1"
 	"github.com/pkg/errors"
+	corev1 "k8s.io/api/core/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/crossplaneio/gitlab-controller/pkg/apis/controller/v1alpha1"
@@ -30,13 +32,94 @@ import (
 
 const (
 	bucketClaimKind = "bucket"
+
+	errorMsgEmptyConnectionSecret = "empty connection secret"
+	errorFmtFailedToParse         = "failed to parse %s"
+	errorFmtFailedToSave          = "failed to save %s"
+
+	errorFailedToCreateConnectionData = "failed to create connection data"
+	errorFailedToCreateConfigData     = "failed to create s3cmd config data"
 )
+
+// secret updater
+type secretUpdater interface {
+	update(*corev1.Secret) error
+}
+
+// connectionKey is a secret key for connection data
+const connectionKey = "connection"
+
+// configKey is a secret key for s3cmd config data
+const configKey = "config"
+
+// secretDataCreator interface to be implemented by a specific provider
+type secretDataCreator interface {
+	create(*corev1.Secret) error
+}
+
+// secretTransformer interface defines operation of transforming connection secret data
+type secretTransformer interface {
+	transform(context.Context) error
+}
+
+// gitLabSecretTransformer
+type gitLabSecretTransformer struct {
+	*baseResourceReconciler
+	secretUpdaters map[string]secretUpdater
+}
+
+// newGitLabSecretTransformer returns new instance of secret transformer with supported provider/updater map
+func newGitLabSecretTransformer(base *baseResourceReconciler) *gitLabSecretTransformer {
+	return &gitLabSecretTransformer{
+		baseResourceReconciler: base,
+		secretUpdaters: map[string]secretUpdater{
+			"aws.crossplane.io/v1alpha1": newAWSSecretUpdater(),
+			"gcp.crossplane.io/v1alpha1": newGCPSecretUpdater(),
+		},
+	}
+}
+
+// transform GitLab bucket secret
+func (t *gitLabSecretTransformer) transform(ctx context.Context) error {
+	if t.status == nil {
+		return errors.New(errorResourceStatusIsNotFound)
+	}
+
+	s := &corev1.Secret{}
+	key := types.NamespacedName{Namespace: t.GetNamespace(), Name: t.status.CredentialsSecretRef.Name}
+	if err := t.client.Get(ctx, key, s); err != nil {
+		return errors.Wrapf(err, errorFmtFailedToRetrieveConnectionSecret, key)
+	}
+
+	providerAPIVersion := t.GetProviderRef().APIVersion
+	updater, found := t.secretUpdaters[providerAPIVersion]
+	if !found {
+		return errors.Errorf(errorFmtNotSupportedProvider, providerAPIVersion)
+	}
+
+	if err := updater.update(s); err != nil {
+		return errors.Wrapf(err, errorFmtFailedToUpdateConnectionSecretData, key)
+	}
+
+	return errors.Wrapf(t.client.Update(ctx, s), errorFmtFailedToUpdateConnectionSecret, key)
+}
 
 // bucketReconciler
 type bucketReconciler struct {
 	*baseResourceReconciler
-	resourceClassFinder resourceClassFinder
 	bucketName          string
+	resourceClassFinder resourceClassFinder
+	secretTransformer   secretTransformer
+}
+
+func newBucketReconciler(gitlab *v1alpha1.GitLab, client client.Client, bucketName string) *bucketReconciler {
+	base := newBaseComponentReconciler(gitlab, client)
+	return &bucketReconciler{
+		baseResourceReconciler: base,
+		resourceClassFinder:    base,
+		bucketName:             bucketName,
+		secretTransformer:      newGitLabSecretTransformer(base),
+	}
 }
 
 func (r *bucketReconciler) reconcile(ctx context.Context) error {
@@ -64,6 +147,9 @@ func (r *bucketReconciler) reconcile(ctx context.Context) error {
 	}
 
 	r.status = &bucket.Status
+	if bucket.Status.IsReady() {
+		return r.secretTransformer.transform(ctx)
+	}
 	return nil
 }
 
@@ -72,12 +158,3 @@ func (r *bucketReconciler) getClaimKind() string {
 }
 
 var _ resourceReconciler = &bucketReconciler{}
-
-func newBucketReconciler(gitlab *v1alpha1.GitLab, client client.Client, bucketName string) *bucketReconciler {
-	base := newBaseComponentReconciler(gitlab, client)
-	return &bucketReconciler{
-		baseResourceReconciler: base,
-		resourceClassFinder:    base,
-		bucketName:             bucketName,
-	}
-}

@@ -24,20 +24,41 @@ import (
 	xpstoragev1alpha1 "github.com/crossplaneio/crossplane/pkg/apis/storage/v1alpha1"
 	"github.com/google/go-cmp/cmp"
 	"github.com/pkg/errors"
-	v1 "k8s.io/api/core/v1"
+	corev1 "k8s.io/api/core/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-
-	"github.com/crossplaneio/gitlab-controller/pkg/test"
-	"github.com/crossplaneio/gitlab-controller/pkg/util"
-
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/crossplaneio/gitlab-controller/pkg/apis/controller/v1alpha1"
+	"github.com/crossplaneio/gitlab-controller/pkg/test"
+	"github.com/crossplaneio/gitlab-controller/pkg/util"
 )
 
 const testBucket = "test-bucket"
+
+type mockSecretTransformer struct {
+	mockTransform func(context.Context) error
+}
+
+func (m *mockSecretTransformer) transform(ctx context.Context) error {
+	return m.mockTransform(ctx)
+}
+
+type mockSecretUpdater struct {
+	mockUpdate func(*corev1.Secret) error
+}
+
+func (m *mockSecretUpdater) update(s *corev1.Secret) error {
+	return m.mockUpdate(s)
+}
+
+type mockSecretDataCreator struct {
+	mockCreate func(*corev1.Secret) error
+}
+
+func (m *mockSecretDataCreator) create(s *corev1.Secret) error { return m.mockCreate(s) }
 
 func getBucketClaimType(name string) string {
 	return bucketClaimKind + "-" + name
@@ -47,9 +68,10 @@ func Test_bucketReconciler_reconcile(t *testing.T) {
 	ctx := context.TODO()
 	testError := errors.New("test-error")
 	type fields struct {
-		base       *baseResourceReconciler
-		finder     resourceClassFinder
-		bucketName string
+		bucketName  string
+		base        *baseResourceReconciler
+		finder      resourceClassFinder
+		transformer secretTransformer
 	}
 	type want struct {
 		err    error
@@ -65,7 +87,7 @@ func Test_bucketReconciler_reconcile(t *testing.T) {
 					GitLab: newGitLabBuilder().build(),
 				},
 				finder: &mockResourceClassFinder{
-					mockFind: func(ctx context.Context, provider v1.ObjectReference, resource string) (*v1.ObjectReference, error) {
+					mockFind: func(ctx context.Context, provider corev1.ObjectReference, resource string) (*corev1.ObjectReference, error) {
 						return nil, testError
 					},
 				},
@@ -88,7 +110,7 @@ func Test_bucketReconciler_reconcile(t *testing.T) {
 					},
 				},
 				finder: &mockResourceClassFinder{
-					mockFind: func(ctx context.Context, provider v1.ObjectReference, resource string) (*v1.ObjectReference, error) {
+					mockFind: func(ctx context.Context, provider corev1.ObjectReference, resource string) (*corev1.ObjectReference, error) {
 						return nil, nil
 					},
 				},
@@ -107,7 +129,7 @@ func Test_bucketReconciler_reconcile(t *testing.T) {
 					},
 				},
 				finder: &mockResourceClassFinder{
-					mockFind: func(ctx context.Context, provider v1.ObjectReference, resource string) (*v1.ObjectReference, error) {
+					mockFind: func(ctx context.Context, provider corev1.ObjectReference, resource string) (*corev1.ObjectReference, error) {
 						return nil, nil
 					},
 				},
@@ -127,7 +149,7 @@ func Test_bucketReconciler_reconcile(t *testing.T) {
 					},
 				},
 				finder: &mockResourceClassFinder{
-					mockFind: func(ctx context.Context, provider v1.ObjectReference, resource string) (*v1.ObjectReference, error) {
+					mockFind: func(ctx context.Context, provider corev1.ObjectReference, resource string) (*corev1.ObjectReference, error) {
 						return nil, nil
 					},
 				},
@@ -135,7 +157,34 @@ func Test_bucketReconciler_reconcile(t *testing.T) {
 			},
 			want: want{},
 		},
-		"Successful": {
+		"SuccessfulNotReady": {
+			fields: fields{
+				base: &baseResourceReconciler{
+					GitLab: newGitLabBuilder().withMeta(testMeta).build(),
+					client: &test.MockClient{
+						MockGet: func(ctx context.Context, key client.ObjectKey, obj runtime.Object) error {
+							psql, ok := obj.(*xpstoragev1alpha1.Bucket)
+							if !ok {
+								return errors.Errorf("bucketReconciler.reconcile() type: %T", obj)
+							}
+							psql.Status = *newResourceClaimStatusBuilder().withCreatingStatus().build()
+							return nil
+						},
+						MockCreate: func(ctx context.Context, obj runtime.Object) error { return nil },
+					},
+				},
+				finder: &mockResourceClassFinder{
+					mockFind: func(ctx context.Context, provider corev1.ObjectReference, resource string) (*corev1.ObjectReference, error) {
+						return nil, nil
+					},
+				},
+				bucketName: testBucket,
+			},
+			want: want{
+				status: newResourceClaimStatusBuilder().withCreatingStatus().build(),
+			},
+		},
+		"SuccessfulReady": {
 			fields: fields{
 				base: &baseResourceReconciler{
 					GitLab: newGitLabBuilder().withMeta(testMeta).build(),
@@ -152,9 +201,12 @@ func Test_bucketReconciler_reconcile(t *testing.T) {
 					},
 				},
 				finder: &mockResourceClassFinder{
-					mockFind: func(ctx context.Context, provider v1.ObjectReference, resource string) (*v1.ObjectReference, error) {
+					mockFind: func(ctx context.Context, provider corev1.ObjectReference, resource string) (*corev1.ObjectReference, error) {
 						return nil, nil
 					},
+				},
+				transformer: &mockSecretTransformer{
+					mockTransform: func(ctx context.Context) error { return nil },
 				},
 				bucketName: testBucket,
 			},
@@ -169,6 +221,7 @@ func Test_bucketReconciler_reconcile(t *testing.T) {
 				baseResourceReconciler: tt.fields.base,
 				resourceClassFinder:    tt.fields.finder,
 				bucketName:             tt.fields.bucketName,
+				secretTransformer:      tt.fields.transformer,
 			}
 			if diff := cmp.Diff(r.reconcile(ctx), tt.want.err, cmpErrors); diff != "" {
 				t.Errorf("bucketReconciler.reconcile() error %s", diff)
@@ -194,5 +247,118 @@ func Test_newBucketReconciler(t *testing.T) {
 	r := newBucketReconciler(gitlab, clnt, testBucket)
 	if diff := cmp.Diff(r.GitLab, gitlab); diff != "" {
 		t.Errorf("newBucketReconciler() GitLab %s", diff)
+	}
+}
+
+func Test_gitlabSecretTransformer_transform(t *testing.T) {
+	ctx := context.TODO()
+	testError := errors.New("test-error")
+	testSecret := "test-secret"
+	testSecretKey := types.NamespacedName{Namespace: testNamespace, Name: testSecret}
+	type fields struct {
+		baseResourceReconciler *baseResourceReconciler
+		secretUpdaters         map[string]secretUpdater
+	}
+	tests := map[string]struct {
+		fields  fields
+		wantErr error
+	}{
+		"NoStatus": {
+			fields: fields{
+				baseResourceReconciler: &baseResourceReconciler{
+					GitLab: newGitLabBuilder().build(),
+				},
+			},
+			wantErr: errors.New(errorResourceStatusIsNotFound),
+		},
+		"FailedToRetrieveSecret": {
+			fields: fields{
+				baseResourceReconciler: &baseResourceReconciler{
+					GitLab: newGitLabBuilder().withMeta(testMeta).build(),
+					client: &test.MockClient{
+						MockGet: func(ctx context.Context, key client.ObjectKey, obj runtime.Object) error {
+							return testError
+						},
+					},
+					status: newResourceClaimStatusBuilder().withCredentialsSecretRef(testSecret).build(),
+				},
+			},
+			wantErr: errors.Wrapf(testError, errorFmtFailedToRetrieveConnectionSecret, testSecretKey),
+		},
+		"NotSupportedProvider": {
+			fields: fields{
+				baseResourceReconciler: &baseResourceReconciler{
+					GitLab: newGitLabBuilder().withMeta(testMeta).build(),
+					client: &test.MockClient{
+						MockGet: func(ctx context.Context, key client.ObjectKey, obj runtime.Object) error { return nil },
+					},
+					status: newResourceClaimStatusBuilder().withCredentialsSecretRef(testSecret).build(),
+				},
+			},
+			wantErr: errors.Errorf(errorFmtNotSupportedProvider, ""),
+		},
+		"UpdaterFailed": {
+			fields: fields{
+				baseResourceReconciler: &baseResourceReconciler{
+					GitLab: newGitLabBuilder().withMeta(testMeta).build(),
+					client: &test.MockClient{
+						MockGet: func(ctx context.Context, key client.ObjectKey, obj runtime.Object) error { return nil },
+					},
+					status: newResourceClaimStatusBuilder().withCredentialsSecretRef(testSecret).build(),
+				},
+				secretUpdaters: map[string]secretUpdater{
+					"": &mockSecretUpdater{
+						mockUpdate: func(secret *corev1.Secret) error { return testError },
+					},
+				},
+			},
+			wantErr: errors.Wrapf(testError, errorFmtFailedToUpdateConnectionSecretData, testSecretKey),
+		},
+		"FailedToUpdateSecretObject": {
+			fields: fields{
+				baseResourceReconciler: &baseResourceReconciler{
+					GitLab: newGitLabBuilder().withMeta(testMeta).build(),
+					client: &test.MockClient{
+						MockGet:    func(ctx context.Context, key client.ObjectKey, obj runtime.Object) error { return nil },
+						MockUpdate: func(ctx context.Context, obj runtime.Object) error { return testError },
+					},
+					status: newResourceClaimStatusBuilder().withCredentialsSecretRef(testSecret).build(),
+				},
+				secretUpdaters: map[string]secretUpdater{
+					"": &mockSecretUpdater{
+						mockUpdate: func(secret *corev1.Secret) error { return nil },
+					},
+				},
+			},
+			wantErr: errors.Wrapf(testError, errorFmtFailedToUpdateConnectionSecret, testSecretKey),
+		},
+		"Successful": {
+			fields: fields{
+				baseResourceReconciler: &baseResourceReconciler{
+					GitLab: newGitLabBuilder().withMeta(testMeta).build(),
+					client: &test.MockClient{
+						MockGet:    func(ctx context.Context, key client.ObjectKey, obj runtime.Object) error { return nil },
+						MockUpdate: func(ctx context.Context, obj runtime.Object) error { return nil },
+					},
+					status: newResourceClaimStatusBuilder().withCredentialsSecretRef(testSecret).build(),
+				},
+				secretUpdaters: map[string]secretUpdater{
+					"": &mockSecretUpdater{
+						mockUpdate: func(secret *corev1.Secret) error { return nil },
+					},
+				},
+			},
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			tr := &gitLabSecretTransformer{
+				baseResourceReconciler: tt.fields.baseResourceReconciler,
+				secretUpdaters:         tt.fields.secretUpdaters,
+			}
+			if diff := cmp.Diff(tr.transform(ctx), tt.wantErr, cmpErrors); diff != "" {
+				t.Errorf("gitLabSecretTransformer.transform() error %s", diff)
+			}
+		})
 	}
 }
