@@ -20,7 +20,9 @@ import (
 	"context"
 
 	xpcachev1alpha1 "github.com/crossplaneio/crossplane/pkg/apis/cache/v1alpha1"
+	xpcorev1alpha1 "github.com/crossplaneio/crossplane/pkg/apis/core/v1alpha1"
 	"github.com/pkg/errors"
+	corev1 "k8s.io/api/core/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -67,10 +69,23 @@ func (r *redisReconciler) getClaimKind() string {
 	return redisClaimKind
 }
 
+func (r *redisReconciler) getHelmValues(ctx context.Context, values map[string]string) error {
+	return r.loadHelmValues(ctx, values, redisHelmValues)
+}
+
+const (
+	helmRedisComponentName = redisClaimKind
+	helmValueRedisHostKey  = "global." + helmRedisComponentName + ".host"
+)
+
+func redisHelmValues(values map[string]string, _ string, secret *corev1.Secret) {
+	values[helmValueRedisHostKey] = string(secret.Data[xpcorev1alpha1.ResourceCredentialsSecretEndpointKey])
+}
+
 var _ resourceReconciler = &redisReconciler{}
 
 func newRedisReconciler(gitlab *v1alpha1.GitLab, client client.Client) *redisReconciler {
-	base := newBaseComponentReconciler(gitlab, client)
+	base := newBaseResourceReconciler(gitlab, client, helmRedisComponentName)
 	return &redisReconciler{
 		baseResourceReconciler: base,
 		resourceClassFinder:    base,

@@ -18,6 +18,7 @@ package gitlab
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	xpcorev1alpha1 "github.com/crossplaneio/crossplane/pkg/apis/core/v1alpha1"
@@ -68,8 +69,9 @@ func Test_bucketReconciler_reconcile(t *testing.T) {
 	ctx := context.TODO()
 	testError := errors.New("test-error")
 	type fields struct {
+		gitlab      *v1alpha1.GitLab
+		client      client.Client
 		bucketName  string
-		base        *baseResourceReconciler
 		finder      resourceClassFinder
 		transformer secretTransformer
 	}
@@ -83,9 +85,7 @@ func Test_bucketReconciler_reconcile(t *testing.T) {
 	}{
 		"FailToFindResourceClass": {
 			fields: fields{
-				base: &baseResourceReconciler{
-					GitLab: newGitLabBuilder().build(),
-				},
+				gitlab: newGitLabBuilder().build(),
 				finder: &mockResourceClassFinder{
 					mockFind: func(ctx context.Context, provider corev1.ObjectReference, resource string) (*corev1.ObjectReference, error) {
 						return nil, testError
@@ -98,15 +98,13 @@ func Test_bucketReconciler_reconcile(t *testing.T) {
 		},
 		"FailToCreate": {
 			fields: fields{
-				base: &baseResourceReconciler{
-					GitLab: newGitLabBuilder().withMeta(testMeta).build(),
-					client: &test.MockClient{
-						MockGet: func(ctx context.Context, key client.ObjectKey, obj runtime.Object) error {
-							return kerrors.NewNotFound(schema.GroupResource{}, "")
-						},
-						MockCreate: func(ctx context.Context, obj runtime.Object) error {
-							return testError
-						},
+				gitlab: newGitLabBuilder().withMeta(testMeta).build(),
+				client: &test.MockClient{
+					MockGet: func(ctx context.Context, key client.ObjectKey, obj runtime.Object) error {
+						return kerrors.NewNotFound(schema.GroupResource{}, "")
+					},
+					MockCreate: func(ctx context.Context, obj runtime.Object) error {
+						return testError
 					},
 				},
 				finder: &mockResourceClassFinder{
@@ -120,12 +118,10 @@ func Test_bucketReconciler_reconcile(t *testing.T) {
 		},
 		"FailToRetrieveObject-Other": {
 			fields: fields{
-				base: &baseResourceReconciler{
-					GitLab: newGitLabBuilder().withMeta(testMeta).build(),
-					client: &test.MockClient{
-						MockGet: func(ctx context.Context, key client.ObjectKey, obj runtime.Object) error {
-							return testError
-						},
+				gitlab: newGitLabBuilder().withMeta(testMeta).build(),
+				client: &test.MockClient{
+					MockGet: func(ctx context.Context, key client.ObjectKey, obj runtime.Object) error {
+						return testError
 					},
 				},
 				finder: &mockResourceClassFinder{
@@ -139,14 +135,12 @@ func Test_bucketReconciler_reconcile(t *testing.T) {
 		},
 		"CreateSuccessful": {
 			fields: fields{
-				base: &baseResourceReconciler{
-					GitLab: newGitLabBuilder().withMeta(testMeta).build(),
-					client: &test.MockClient{
-						MockGet: func(ctx context.Context, key client.ObjectKey, obj runtime.Object) error {
-							return kerrors.NewNotFound(schema.GroupResource{}, "")
-						},
-						MockCreate: func(ctx context.Context, obj runtime.Object) error { return nil },
+				gitlab: newGitLabBuilder().withMeta(testMeta).build(),
+				client: &test.MockClient{
+					MockGet: func(ctx context.Context, key client.ObjectKey, obj runtime.Object) error {
+						return kerrors.NewNotFound(schema.GroupResource{}, "")
 					},
+					MockCreate: func(ctx context.Context, obj runtime.Object) error { return nil },
 				},
 				finder: &mockResourceClassFinder{
 					mockFind: func(ctx context.Context, provider corev1.ObjectReference, resource string) (*corev1.ObjectReference, error) {
@@ -159,19 +153,17 @@ func Test_bucketReconciler_reconcile(t *testing.T) {
 		},
 		"SuccessfulNotReady": {
 			fields: fields{
-				base: &baseResourceReconciler{
-					GitLab: newGitLabBuilder().withMeta(testMeta).build(),
-					client: &test.MockClient{
-						MockGet: func(ctx context.Context, key client.ObjectKey, obj runtime.Object) error {
-							psql, ok := obj.(*xpstoragev1alpha1.Bucket)
-							if !ok {
-								return errors.Errorf("bucketReconciler.reconcile() type: %T", obj)
-							}
-							psql.Status = *newResourceClaimStatusBuilder().withCreatingStatus().build()
-							return nil
-						},
-						MockCreate: func(ctx context.Context, obj runtime.Object) error { return nil },
+				gitlab: newGitLabBuilder().withMeta(testMeta).build(),
+				client: &test.MockClient{
+					MockGet: func(ctx context.Context, key client.ObjectKey, obj runtime.Object) error {
+						psql, ok := obj.(*xpstoragev1alpha1.Bucket)
+						if !ok {
+							return errors.Errorf("bucketReconciler.reconcile() type: %T", obj)
+						}
+						psql.Status = *newResourceClaimStatusBuilder().withCreatingStatus().build()
+						return nil
 					},
+					MockCreate: func(ctx context.Context, obj runtime.Object) error { return nil },
 				},
 				finder: &mockResourceClassFinder{
 					mockFind: func(ctx context.Context, provider corev1.ObjectReference, resource string) (*corev1.ObjectReference, error) {
@@ -186,19 +178,17 @@ func Test_bucketReconciler_reconcile(t *testing.T) {
 		},
 		"SuccessfulReady": {
 			fields: fields{
-				base: &baseResourceReconciler{
-					GitLab: newGitLabBuilder().withMeta(testMeta).build(),
-					client: &test.MockClient{
-						MockGet: func(ctx context.Context, key client.ObjectKey, obj runtime.Object) error {
-							psql, ok := obj.(*xpstoragev1alpha1.Bucket)
-							if !ok {
-								return errors.Errorf("bucketReconciler.reconcile() type: %T", obj)
-							}
-							psql.Status = *newResourceClaimStatusBuilder().withReadyStatus().build()
-							return nil
-						},
-						MockCreate: func(ctx context.Context, obj runtime.Object) error { return nil },
+				gitlab: newGitLabBuilder().withMeta(testMeta).build(),
+				client: &test.MockClient{
+					MockGet: func(ctx context.Context, key client.ObjectKey, obj runtime.Object) error {
+						psql, ok := obj.(*xpstoragev1alpha1.Bucket)
+						if !ok {
+							return errors.Errorf("bucketReconciler.reconcile() type: %T", obj)
+						}
+						psql.Status = *newResourceClaimStatusBuilder().withReadyStatus().build()
+						return nil
 					},
+					MockCreate: func(ctx context.Context, obj runtime.Object) error { return nil },
 				},
 				finder: &mockResourceClassFinder{
 					mockFind: func(ctx context.Context, provider corev1.ObjectReference, resource string) (*corev1.ObjectReference, error) {
@@ -217,12 +207,11 @@ func Test_bucketReconciler_reconcile(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			r := &bucketReconciler{
-				baseResourceReconciler: tt.fields.base,
-				resourceClassFinder:    tt.fields.finder,
-				bucketName:             tt.fields.bucketName,
-				secretTransformer:      tt.fields.transformer,
-			}
+			f := func(map[string]string, string, *corev1.Secret) {}
+			r := newBucketReconciler(tt.fields.gitlab, tt.fields.client, tt.fields.bucketName, f)
+			r.resourceClassFinder = tt.fields.finder
+			r.secretTransformer = tt.fields.transformer
+
 			if diff := cmp.Diff(r.reconcile(ctx), tt.want.err, cmpErrors); diff != "" {
 				t.Errorf("bucketReconciler.reconcile() error %s", diff)
 			}
@@ -234,19 +223,40 @@ func Test_bucketReconciler_reconcile(t *testing.T) {
 }
 
 func Test_bucketReconciler_getClaimKind(t *testing.T) {
-	r := &bucketReconciler{bucketName: testBucket}
+	r := newBucketReconciler(newGitLabBuilder().build(), test.NewMockClient(), testBucket, nil)
 	if diff := cmp.Diff(r.getClaimKind(), getBucketClaimType(testBucket)); diff != "" {
 		t.Errorf("bucketReconciler.getClaimKind() %s", diff)
 	}
 }
 
-func Test_newBucketReconciler(t *testing.T) {
-	gitlab := &v1alpha1.GitLab{}
-	clnt := test.NewMockClient()
-
-	r := newBucketReconciler(gitlab, clnt, testBucket)
-	if diff := cmp.Diff(r.GitLab, gitlab); diff != "" {
-		t.Errorf("newBucketReconciler() GitLab %s", diff)
+func Test_bucketReconciler_getHelmValues(t *testing.T) {
+	ctx := context.TODO()
+	type fields struct {
+		baseResourceReconciler *baseResourceReconciler
+		resourceClassFinder    resourceClassFinder
+	}
+	tests := map[string]struct {
+		fields fields
+		args   map[string]string
+		want   error
+	}{
+		"Failure": {
+			fields: fields{
+				baseResourceReconciler: newBaseResourceReconciler(newGitLabBuilder().build(), test.NewMockClient(), testBucket),
+			},
+			want: errors.New(errorResourceStatusIsNotFound),
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			r := &bucketReconciler{
+				baseResourceReconciler: tt.fields.baseResourceReconciler,
+				resourceClassFinder:    tt.fields.resourceClassFinder,
+			}
+			if diff := cmp.Diff(r.getHelmValues(ctx, tt.args), tt.want, cmpErrors); diff != "" {
+				t.Errorf("bucketReconciler.getHelmValues() error %s", diff)
+			}
+		})
 	}
 }
 
@@ -358,6 +368,203 @@ func Test_gitlabSecretTransformer_transform(t *testing.T) {
 			}
 			if diff := cmp.Diff(tr.transform(ctx), tt.wantErr, cmpErrors); diff != "" {
 				t.Errorf("gitLabSecretTransformer.transform() error %s", diff)
+			}
+		})
+	}
+}
+
+func Test_bucketConnectionHelmValues(t *testing.T) {
+	type args struct {
+		values map[string]string
+		name   string
+		secret *corev1.Secret
+	}
+	type want struct {
+		panic bool
+		data  map[string]string
+	}
+	tests := map[string]struct {
+		args args
+		want want
+	}{
+		"Failure": {
+			args: args{},
+			want: want{panic: true},
+		},
+		"Success-NoValues": {
+			args: args{
+				values: make(map[string]string),
+				name:   "foo",
+				secret: &corev1.Secret{Data: map[string][]byte{}},
+			},
+			want: want{
+				data: map[string]string{
+					fmt.Sprintf(helmValueBucketFmt, "foo"):           "",
+					fmt.Sprintf(helmValueConnectionSecretFmt, "foo"): "",
+					fmt.Sprintf(helmValueConnectionKeyFmt, "foo"):    connectionKey,
+				},
+			},
+		},
+		"Success-WithValues": {
+			args: args{
+				values: make(map[string]string),
+				name:   "foo",
+				secret: &corev1.Secret{
+					ObjectMeta: testMeta,
+					Data: map[string][]byte{
+						xpcorev1alpha1.ResourceCredentialsSecretEndpointKey: []byte("bar"),
+					},
+				},
+			},
+			want: want{
+				data: map[string]string{
+					fmt.Sprintf(helmValueBucketFmt, "foo"):           "bar",
+					fmt.Sprintf(helmValueConnectionSecretFmt, "foo"): testName,
+					fmt.Sprintf(helmValueConnectionKeyFmt, "foo"):    connectionKey,
+				},
+			},
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			defer func() {
+				if r := recover(); r != nil && !tt.want.panic {
+					t.Errorf("bucketConnectionHelmValues() panic: %v", r)
+				}
+			}()
+			bucketConnectionHelmValues(tt.args.values, tt.args.name, tt.args.secret)
+			if diff := cmp.Diff(tt.args.values, tt.want.data); diff != "" {
+				t.Errorf("bucketConnectionHelmValues() %s", diff)
+			}
+		})
+	}
+}
+
+func Test_bucketBackupsHelmValues(t *testing.T) {
+	type args struct {
+		values map[string]string
+		name   string
+		secret *corev1.Secret
+	}
+	type want struct {
+		panic bool
+		data  map[string]string
+	}
+	tests := map[string]struct {
+		args args
+		want want
+	}{
+		"Failure": {
+			args: args{},
+			want: want{panic: true},
+		},
+		"Success-NoValues": {
+			args: args{
+				values: make(map[string]string),
+				name:   "foo",
+				secret: &corev1.Secret{Data: map[string][]byte{}},
+			},
+			want: want{
+				data: map[string]string{
+					fmt.Sprintf(helmValueBucketFmt, "foo"): "",
+					helmValueTaskRunnerSecret:              "",
+					helmValueTaskRunnerKey:                 configKey,
+				},
+			},
+		},
+		"Success-WithValues": {
+			args: args{
+				values: make(map[string]string),
+				name:   "foo",
+				secret: &corev1.Secret{
+					ObjectMeta: testMeta,
+					Data: map[string][]byte{
+						xpcorev1alpha1.ResourceCredentialsSecretEndpointKey: []byte("bar"),
+					},
+				},
+			},
+			want: want{
+				data: map[string]string{
+					fmt.Sprintf(helmValueBucketFmt, "foo"): "bar",
+					helmValueTaskRunnerSecret:              testName,
+					helmValueTaskRunnerKey:                 configKey,
+				},
+			},
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			defer func() {
+				if r := recover(); r != nil && !tt.want.panic {
+					t.Errorf("bucketBackupsHelmValues() panic: %v", r)
+				}
+			}()
+			bucketBackupsHelmValues(tt.args.values, tt.args.name, tt.args.secret)
+			if diff := cmp.Diff(tt.args.values, tt.want.data); diff != "" {
+				t.Errorf("bucketBackupsHelmValues() %s", diff)
+			}
+		})
+	}
+}
+
+func Test_bucketBackupsTempHelmValues(t *testing.T) {
+	type args struct {
+		values map[string]string
+		name   string
+		secret *corev1.Secret
+	}
+	type want struct {
+		panic bool
+		data  map[string]string
+	}
+	tests := map[string]struct {
+		args args
+		want want
+	}{
+		"Failure": {
+			args: args{},
+			want: want{panic: true},
+		},
+		"Success-NoValues": {
+			args: args{
+				values: make(map[string]string),
+				name:   "foo",
+				secret: &corev1.Secret{Data: map[string][]byte{}},
+			},
+			want: want{
+				data: map[string]string{
+					helmValueBackupsTempBucket: "foo",
+				},
+			},
+		},
+		"Success-WithValues": {
+			args: args{
+				values: make(map[string]string),
+				name:   "foo",
+				secret: &corev1.Secret{
+					ObjectMeta: testMeta,
+					Data: map[string][]byte{
+						xpcorev1alpha1.ResourceCredentialsSecretEndpointKey: []byte("bar"),
+					},
+				},
+			},
+			want: want{
+				data: map[string]string{
+					helmValueBackupsTempBucket: "foo",
+				},
+			},
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			defer func() {
+				if r := recover(); r != nil && !tt.want.panic {
+					t.Errorf("bucketBackupsTempHelmValues() panic: %v", r)
+				}
+			}()
+			bucketBackupsTempHelmValues(tt.args.values, tt.args.name, tt.args.secret)
+			if diff := cmp.Diff(tt.args.values, tt.want.data); diff != "" {
+				t.Errorf("bucketBackupsTempHelmValues() %s", diff)
 			}
 		})
 	}

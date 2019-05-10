@@ -19,8 +19,10 @@ package gitlab
 import (
 	"context"
 
+	xpcorev1alpha1 "github.com/crossplaneio/crossplane/pkg/apis/core/v1alpha1"
 	xpstoragev1alpha1 "github.com/crossplaneio/crossplane/pkg/apis/storage/v1alpha1"
 	"github.com/pkg/errors"
+	corev1 "k8s.io/api/core/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -67,10 +69,27 @@ func (r *postgresReconciler) getClaimKind() string {
 	return postgresqlClaimKind
 }
 
+func (r *postgresReconciler) getHelmValues(ctx context.Context, values map[string]string) error {
+	return r.loadHelmValues(ctx, values, postgresHelmValues)
+}
+
+const (
+	helmPostgresComponentName = "psql"
+	helmValuePsqlHostKey      = "global." + helmPostgresComponentName + "psql.host"
+	helmValuePsqlDatabaseKey  = "global." + helmPostgresComponentName + ".database"
+	helmValuePsqlUsernameKey  = "global." + helmPostgresComponentName + ".username"
+)
+
+func postgresHelmValues(values map[string]string, _ string, secret *corev1.Secret) {
+	values[helmValuePsqlHostKey] = string(secret.Data[xpcorev1alpha1.ResourceCredentialsSecretEndpointKey])
+	values[helmValuePsqlUsernameKey] = string(secret.Data[xpcorev1alpha1.ResourceCredentialsSecretUserKey])
+	values[helmValuePsqlDatabaseKey] = "postgres"
+}
+
 var _ resourceReconciler = &postgresReconciler{}
 
 func newPostgresReconciler(gitlab *v1alpha1.GitLab, client client.Client) *postgresReconciler {
-	base := newBaseComponentReconciler(gitlab, client)
+	base := newBaseResourceReconciler(gitlab, client, helmPostgresComponentName)
 	return &postgresReconciler{
 		baseResourceReconciler: base,
 		resourceClassFinder:    base,
