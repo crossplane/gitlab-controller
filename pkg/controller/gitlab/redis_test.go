@@ -21,10 +21,10 @@ import (
 	"testing"
 
 	xpcachev1alpha1 "github.com/crossplaneio/crossplane/pkg/apis/cache/v1alpha1"
-
 	xpcorev1alpha1 "github.com/crossplaneio/crossplane/pkg/apis/core/v1alpha1"
 	"github.com/google/go-cmp/cmp"
 	"github.com/pkg/errors"
+	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/core/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -180,5 +180,100 @@ func Test_newRedisReconciler(t *testing.T) {
 	r := newRedisReconciler(gitlab, clnt)
 	if diff := cmp.Diff(r.GitLab, gitlab); diff != "" {
 		t.Errorf("newRedisReconciler() GitLab %s", diff)
+	}
+}
+
+func Test_redisReconciler_getHelmValues(t *testing.T) {
+	ctx := context.TODO()
+	type fields struct {
+		baseResourceReconciler *baseResourceReconciler
+		resourceClassFinder    resourceClassFinder
+	}
+	tests := map[string]struct {
+		fields fields
+		args   map[string]string
+		want   error
+	}{
+		"Failure": {
+			fields: fields{
+				baseResourceReconciler: newBaseResourceReconciler(newGitLabBuilder().build(), test.NewMockClient(), helmRedisComponentName),
+			},
+			want: errors.New(errorResourceStatusIsNotFound),
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			r := &redisReconciler{
+				baseResourceReconciler: tt.fields.baseResourceReconciler,
+				resourceClassFinder:    tt.fields.resourceClassFinder,
+			}
+			if diff := cmp.Diff(r.getHelmValues(ctx, tt.args), tt.want, cmpErrors); diff != "" {
+				t.Errorf("redisReconciler.getHelmValues() error %s", diff)
+			}
+		})
+	}
+}
+
+func Test_redisHelmValues(t *testing.T) {
+	type args struct {
+		values map[string]string
+		name   string
+		secret *corev1.Secret
+	}
+	type want struct {
+		panic bool
+		data  map[string]string
+	}
+	tests := map[string]struct {
+		args args
+		want want
+	}{
+		"Failure": {
+			args: args{},
+			want: want{panic: true},
+		},
+		"Success-NoValue": {
+			args: args{
+				values: make(map[string]string),
+				name:   "foo",
+				secret: &corev1.Secret{Data: map[string][]byte{}},
+			},
+			want: want{
+				data: map[string]string{
+					helmValueRedisHostKey: "",
+					helmRedisEnabled:      "false",
+				},
+			},
+		},
+		"Success-WithValue": {
+			args: args{
+				values: make(map[string]string),
+				name:   "foo",
+				secret: &corev1.Secret{
+					Data: map[string][]byte{
+						xpcorev1alpha1.ResourceCredentialsSecretEndpointKey: []byte("bar"),
+					},
+				},
+			},
+			want: want{
+				data: map[string]string{
+					helmValueRedisHostKey: "bar",
+					helmRedisEnabled:      "false",
+				},
+			},
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			defer func() {
+				if r := recover(); r != nil && !tt.want.panic {
+					t.Errorf("redisHelmValues() panic: %v", r)
+				}
+			}()
+			redisHelmValues(tt.args.values, tt.args.name, tt.args.secret)
+			if diff := cmp.Diff(tt.args.values, tt.want.data); diff != "" {
+				t.Errorf("redisHelmValues() %s", diff)
+			}
+		})
 	}
 }

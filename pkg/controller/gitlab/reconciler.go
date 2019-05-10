@@ -54,9 +54,10 @@ const (
 
 	errorResourceStatusIsNotFound = "resource status is not found"
 
-	reasonResourceProcessingFailure = "fail to process resource"
-	reasonHasFailedResources        = "has failed resourceClaims"
-	reasonHasPendingResources       = "has pending resourceClaims"
+	reasonResourceProcessingFailure  = "fail to process resource"
+	reasonHasFailedResources         = "has failed resourceClaims"
+	reasonHasPendingResources        = "has pending resourceClaims"
+	reasonFailedToGenerateHelmValues = "failed to generate helm values"
 )
 
 var (
@@ -77,6 +78,8 @@ type resourceReconciler interface {
 	getClaimKind() string
 	// getClaimConnectionSecret
 	getClaimConnectionSecret(context.Context) (*corev1.Secret, error)
+	// getHelmValues returns map of helm set key/value pairs
+	getHelmValues(context.Context, map[string]string) error
 }
 
 // resourceClassFinder interface
@@ -87,8 +90,9 @@ type resourceClassFinder interface {
 // base provides base operations needed during typical component reconciliation
 type baseResourceReconciler struct {
 	*v1alpha1.GitLab
-	client client.Client
-	status *xpcorev1alpha1.ResourceClaimStatus
+	client        client.Client
+	status        *xpcorev1alpha1.ResourceClaimStatus
+	componentName string
 }
 
 // isReady when ready
@@ -147,57 +151,65 @@ func (r *baseResourceReconciler) newNamespacedName(nameSuffixes ...string) types
 	}
 }
 
-// newBaseComponentReconciler returns a new instance of the component reconciler
-func newBaseComponentReconciler(gitlab *v1alpha1.GitLab, client client.Client) *baseResourceReconciler {
+func (r *baseResourceReconciler) loadHelmValues(ctx context.Context, values map[string]string, function helmValuesFunction) error {
+	if r.status == nil {
+		return errors.New(errorResourceStatusIsNotFound)
+	}
+
+	s := &corev1.Secret{}
+	key := types.NamespacedName{Namespace: r.GetNamespace(), Name: r.status.CredentialsSecretRef.Name}
+	if err := r.client.Get(ctx, key, s); err != nil {
+		return errors.Wrapf(err, errorFmtFailedToRetrieveConnectionSecret, key)
+	}
+
+	function(values, r.Name, s)
+	return nil
+}
+
+// newBaseResourceReconciler returns a new instance of the component reconciler
+func newBaseResourceReconciler(gitlab *v1alpha1.GitLab, client client.Client, name string) *baseResourceReconciler {
 	return &baseResourceReconciler{
-		GitLab: gitlab,
-		client: client,
+		GitLab:        gitlab,
+		client:        client,
+		componentName: name,
 	}
 }
 
-// gitLabReconciler
-type gitLabReconciler struct {
+// handle
+type handle struct {
 	*v1alpha1.GitLab
-	client         client.Client
-	resourceClaims []resourceReconciler
+	client client.Client
 }
-
-const (
-//reasonConnectionSecretRetrievalFailure = "failed to retrieve claim connection secret"
-//reasonFailedToConvertConnectionSecret  = "failed to convert connection secret to template"
-)
 
 // fail helper function combines setting resource failed condition and updating status
-func (r *gitLabReconciler) fail(ctx context.Context, reason, msg string) error {
+func (h *handle) fail(ctx context.Context, reason, msg string) error {
 	log.Info("reconciliation failure", "reason", reason, "msg", msg)
-	r.SetFailed(reason, msg)
-	return r.update(ctx)
+	h.SetFailed(reason, msg)
+	return h.update(ctx)
 }
 
-func (r *gitLabReconciler) pending(ctx context.Context, reason, msg string) error {
-	r.SetPending(reason, msg)
-	return r.update(ctx)
+func (h *handle) pending(ctx context.Context, reason, msg string) error {
+	h.SetPending(reason, msg)
+	return h.update(ctx)
 }
 
-func (r *gitLabReconciler) update(ctx context.Context) error {
-	return r.client.Status().Update(ctx, r.GitLab)
+func (h *handle) update(ctx context.Context) error {
+	return h.client.Status().Update(ctx, h.GitLab)
 }
 
-func (r *gitLabReconciler) reconcile(ctx context.Context) (reconcile.Result, error) {
-	r.SetEndpoint(r.GetEndpoint())
-
-	log.V(logging.Debug).Info("reconciling resource claims")
-	res, err := r.reconcileClaims(ctx, r.resourceClaims)
-	if res != reconcileSuccess {
-		log.Error(err, "claim reconciliation failed")
-		return res, err
-	}
-
-	log.V(logging.Debug).Info("reconciling applications")
-	return r.reconcileApplication(ctx, r.resourceClaims)
+// component reconciler
+type componentsReconciler interface {
+	reconcile(context.Context, []resourceReconciler) (reconcile.Result, error)
 }
 
-func (r *gitLabReconciler) reconcileClaims(ctx context.Context, claims []resourceReconciler) (reconcile.Result, error) {
+//
+type resourceClaimsReconciler struct {
+	*handle
+}
+
+var _ componentsReconciler = &resourceClaimsReconciler{}
+
+func (r *resourceClaimsReconciler) reconcile(ctx context.Context, claims []resourceReconciler) (reconcile.Result, error) {
 	var failed []string
 	var pending []string
 
@@ -222,34 +234,78 @@ func (r *gitLabReconciler) reconcileClaims(ctx context.Context, claims []resourc
 	return reconcileSuccess, nil
 }
 
-func (r *gitLabReconciler) reconcileApplication(ctx context.Context, resources []resourceReconciler) (reconcile.Result, error) {
-	for _, rs := range resources {
-		log.V(logging.Debug).Info(rs.getClaimKind(), "ready", rs.isReady())
+type applicationReconciler struct {
+	*handle
+}
+
+var _ componentsReconciler = &applicationReconciler{}
+
+func (a *applicationReconciler) reconcile(ctx context.Context, resources []resourceReconciler) (reconcile.Result, error) {
+	helmValues := make(map[string]string)
+	for _, claim := range resources {
+		log.V(logging.Debug).Info(claim.getClaimKind(), "ready", claim.isReady())
+		if err := claim.getHelmValues(ctx, helmValues); err != nil {
+			return reconcileFailure, a.fail(ctx, reasonFailedToGenerateHelmValues, err.Error())
+		}
 	}
-	r.SetReady()
-	return reconcileSuccess, r.update(ctx)
+	minioHelmValues(helmValues)
+
+	// TODO: This is where we are ready to generate GitLab Kubernetes Application and
+	// 	update it with required resource
+	// 	secrets (all bucket secrets + postgres secret)
+	a.SetReady()
+	return reconcileSuccess, a.update(ctx)
+}
+
+// gitLabReconciler
+type gitLabReconciler struct {
+	*handle
+	resourceClaims           []resourceReconciler
+	resourceClaimsReconciler componentsReconciler
+	applicationReconciler    componentsReconciler
+}
+
+func (r *gitLabReconciler) reconcile(ctx context.Context) (reconcile.Result, error) {
+	r.SetEndpoint(r.GetEndpoint())
+
+	log.V(logging.Debug).Info("reconciling resource claims")
+	res, err := r.resourceClaimsReconciler.reconcile(ctx, r.resourceClaims)
+	if res != reconcileSuccess {
+		log.Error(err, "claim reconciliation failed")
+		return res, err
+	}
+
+	log.V(logging.Debug).Info("reconciling applications")
+	return r.applicationReconciler.reconcile(ctx, r.resourceClaims)
 }
 
 func newGitLabReconciler(gitlab *v1alpha1.GitLab, client client.Client) *gitLabReconciler {
-	return &gitLabReconciler{
+	h := &handle{
 		GitLab: gitlab,
 		client: client,
+	}
+	return &gitLabReconciler{
+		handle: h,
 		resourceClaims: []resourceReconciler{
 			newKubernetesReconciler(gitlab, client),
 			newPostgresReconciler(gitlab, client),
 			newRedisReconciler(gitlab, client),
-			newBucketReconciler(gitlab, client, "artifacts"),
-			newBucketReconciler(gitlab, client, "backups"),
-			newBucketReconciler(gitlab, client, "backups-tmp"),
-			newBucketReconciler(gitlab, client, "externaldiffs"),
-			newBucketReconciler(gitlab, client, "lfs"),
-			newBucketReconciler(gitlab, client, "packages"),
-			newBucketReconciler(gitlab, client, "pseudonymizer"),
-			newBucketReconciler(gitlab, client, "registry"),
-			newBucketReconciler(gitlab, client, "uploads"),
+			newBucketReconciler(gitlab, client, "artifacts", bucketConnectionHelmValues),
+			newBucketReconciler(gitlab, client, "backups", bucketBackupsHelmValues),
+			newBucketReconciler(gitlab, client, "backups-tmp", bucketBackupsTempHelmValues),
+			newBucketReconciler(gitlab, client, "externaldiffs", bucketConnectionHelmValues),
+			newBucketReconciler(gitlab, client, "lfs", bucketConnectionHelmValues),
+			newBucketReconciler(gitlab, client, "packages", bucketConnectionHelmValues),
+			newBucketReconciler(gitlab, client, "pseudonymizer", bucketConnectionHelmValues),
+			newBucketReconciler(gitlab, client, "registry", bucketConnectionHelmValues),
+			newBucketReconciler(gitlab, client, "uploads", bucketConnectionHelmValues),
 		},
+		resourceClaimsReconciler: &resourceClaimsReconciler{handle: h},
+		applicationReconciler:    &applicationReconciler{handle: h},
 	}
 }
+
+type helmValuesFunction func(map[string]string, string, *corev1.Secret)
 
 var _ reconciler = &gitLabReconciler{}
 
@@ -271,3 +327,9 @@ func (m *gitLabReconcilerMill) newReconciler(gitlab *v1alpha1.GitLab, client cli
 }
 
 var _ reconcilerMill = &gitLabReconcilerMill{}
+
+const helmMinioEnabled = "global.minio.enabled"
+
+func minioHelmValues(values map[string]string) {
+	values[helmMinioEnabled] = "false"
+}

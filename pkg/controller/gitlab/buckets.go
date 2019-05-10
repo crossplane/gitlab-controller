@@ -18,8 +18,10 @@ package gitlab
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
+	xpcorev1alpha1 "github.com/crossplaneio/crossplane/pkg/apis/core/v1alpha1"
 	xpstoragev1alpha1 "github.com/crossplaneio/crossplane/pkg/apis/storage/v1alpha1"
 	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
@@ -107,18 +109,18 @@ func (t *gitLabSecretTransformer) transform(ctx context.Context) error {
 // bucketReconciler
 type bucketReconciler struct {
 	*baseResourceReconciler
-	bucketName          string
 	resourceClassFinder resourceClassFinder
 	secretTransformer   secretTransformer
+	helmValuesFunction  helmValuesFunction
 }
 
-func newBucketReconciler(gitlab *v1alpha1.GitLab, client client.Client, bucketName string) *bucketReconciler {
-	base := newBaseComponentReconciler(gitlab, client)
+func newBucketReconciler(gitlab *v1alpha1.GitLab, client client.Client, name string, helmValuesFunction helmValuesFunction) *bucketReconciler {
+	base := newBaseResourceReconciler(gitlab, client, name)
 	return &bucketReconciler{
 		baseResourceReconciler: base,
 		resourceClassFinder:    base,
-		bucketName:             bucketName,
 		secretTransformer:      newGitLabSecretTransformer(base),
+		helmValuesFunction:     helmValuesFunction,
 	}
 }
 
@@ -128,7 +130,7 @@ func (r *bucketReconciler) reconcile(ctx context.Context) error {
 		return errors.Wrapf(err, errorFmtFailedToFindResourceClass, r.getClaimKind(), r.GetProviderRef())
 	}
 
-	meta := r.newObjectMeta(r.bucketName)
+	meta := r.newObjectMeta(r.componentName)
 
 	bucket := &xpstoragev1alpha1.Bucket{
 		ObjectMeta: meta,
@@ -137,7 +139,7 @@ func (r *bucketReconciler) reconcile(ctx context.Context) error {
 			Name:     strings.Join([]string{meta.Name, "%s"}, "-"),
 		},
 	}
-	key := r.newNamespacedName(r.bucketName)
+	key := r.newNamespacedName(r.componentName)
 
 	if err := r.client.Get(ctx, key, bucket); err != nil {
 		if kerrors.IsNotFound(err) {
@@ -154,7 +156,42 @@ func (r *bucketReconciler) reconcile(ctx context.Context) error {
 }
 
 func (r *bucketReconciler) getClaimKind() string {
-	return bucketClaimKind + "-" + r.bucketName
+	return bucketClaimKind + "-" + r.componentName
+}
+
+func (r *bucketReconciler) getHelmValues(ctx context.Context, values map[string]string) error {
+	return r.baseResourceReconciler.loadHelmValues(ctx, values, r.helmValuesFunction)
+}
+
+const (
+	helmValueBucketFmt           = "global.appConfig.%s.bucket"
+	helmValueConnectionSecretFmt = "global.appConfig.%s.connection.secret"
+	helmValueConnectionKeyFmt    = "global.appConfig.%s.connection.key"
+	helmValueTaskRunnerSecret    = "gitlab.task-runner.backups.objectStorage.config.secret"
+	helmValueTaskRunnerKey       = "gitlab.task-runner.backups.objectStorage.config.key"
+	helmValueBackupsTempBucket   = "global.appConfig.backups.tmpBucket"
+)
+
+// bucketConnectionHelmValues map of helm set key/value pairs
+// https://docs.gitlab.com/charts/advanced/external-object-storage/index.html#lfs-artifacts-uploads-packages-external-diffs-pseudonymizer
+func bucketConnectionHelmValues(values map[string]string, name string, secret *corev1.Secret) {
+	values[fmt.Sprintf(helmValueBucketFmt, name)] = string(secret.Data[xpcorev1alpha1.ResourceCredentialsSecretEndpointKey])
+	values[fmt.Sprintf(helmValueConnectionSecretFmt, name)] = secret.GetName()
+	values[fmt.Sprintf(helmValueConnectionKeyFmt, name)] = connectionKey
+}
+
+// bucketBackupsHelmValues map of helm set key/value pairs
+// https://docs.gitlab.com/charts/advanced/external-object-storage/index.html#backups
+func bucketBackupsHelmValues(values map[string]string, name string, secret *corev1.Secret) {
+	values[fmt.Sprintf(helmValueBucketFmt, name)] = string(secret.Data[xpcorev1alpha1.ResourceCredentialsSecretEndpointKey])
+	values[helmValueTaskRunnerSecret] = secret.GetName()
+	values[helmValueTaskRunnerKey] = configKey
+}
+
+// bucketBackupsTempHelmValues map of helm set key/value pairs
+// https://docs.gitlab.com/charts/advanced/external-object-storage/index.html#backups
+func bucketBackupsTempHelmValues(values map[string]string, name string, _ *corev1.Secret) {
+	values[helmValueBackupsTempBucket] = name
 }
 
 var _ resourceReconciler = &bucketReconciler{}

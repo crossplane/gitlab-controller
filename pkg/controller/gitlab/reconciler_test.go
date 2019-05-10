@@ -33,10 +33,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	"github.com/crossplaneio/gitlab-controller/pkg/apis/controller/v1alpha1"
 	"github.com/crossplaneio/gitlab-controller/pkg/test"
 	"github.com/crossplaneio/gitlab-controller/pkg/util"
-
-	"github.com/crossplaneio/gitlab-controller/pkg/apis/controller/v1alpha1"
 )
 
 // mockGitLabReconcilerMill
@@ -72,53 +71,107 @@ func (m *mockResourceClassFinder) find(ctx context.Context, provider corev1.Obje
 
 var _ resourceClassFinder = &mockResourceClassFinder{}
 
+// mockResourceClaimsReconciler
+type mockComponentsReconciler struct {
+	mockReconcile func(context.Context, []resourceReconciler) (reconcile.Result, error)
+}
+
+func (m *mockComponentsReconciler) reconcile(ctx context.Context, rs []resourceReconciler) (reconcile.Result, error) {
+	return m.mockReconcile(ctx, rs)
+}
+
+var _ componentsReconciler = &mockComponentsReconciler{}
+
+// mockResourceReconciler
+type mockResourceReconciler struct {
+	mockReconcile                func(context.Context) error
+	mockIsReady                  func() bool
+	mockIsFailed                 func() bool
+	mockGetClaimKind             func() string
+	mockGetClaimConnectionSecret func(context.Context) (*corev1.Secret, error)
+	mockGetHelmValues            func(context.Context, map[string]string) error
+}
+
+func (m *mockResourceReconciler) reconcile(ctx context.Context) error {
+	return m.mockReconcile(ctx)
+}
+func (m *mockResourceReconciler) isReady() bool {
+	return m.mockIsReady()
+}
+func (m *mockResourceReconciler) isFailed() bool {
+	return m.mockIsFailed()
+}
+func (m *mockResourceReconciler) getClaimKind() string {
+	return m.mockGetClaimKind()
+}
+func (m *mockResourceReconciler) getClaimConnectionSecret(ctx context.Context) (*corev1.Secret, error) {
+	return m.mockGetClaimConnectionSecret(ctx)
+}
+func (m *mockResourceReconciler) getHelmValues(ctx context.Context, values map[string]string) error {
+	return m.mockGetHelmValues(ctx, values)
+}
+
+var _ resourceReconciler = &mockResourceReconciler{}
+
 // resourceClaimStatusBuilder
 type resourceClaimStatusBuilder struct {
 	*xpcorev1alpha1.ResourceClaimStatus
 }
 
-func newResourceClaimStatusBuilder() *resourceClaimStatusBuilder {
-	return &resourceClaimStatusBuilder{ResourceClaimStatus: &xpcorev1alpha1.ResourceClaimStatus{}}
-}
-
 func (b *resourceClaimStatusBuilder) build() *xpcorev1alpha1.ResourceClaimStatus {
 	return b.ResourceClaimStatus
 }
-
 func (b *resourceClaimStatusBuilder) withReadyStatus() *resourceClaimStatusBuilder {
 	b.SetReady()
 	return b
 }
-
 func (b *resourceClaimStatusBuilder) withCreatingStatus() *resourceClaimStatusBuilder {
 	b.SetCreating()
 	return b
 }
-
 func (b *resourceClaimStatusBuilder) withFailedStatus(rsn, msg string) *resourceClaimStatusBuilder {
 	b.SetFailed(rsn, msg)
 	return b
 }
-
 func (b *resourceClaimStatusBuilder) withCredentialsSecretRef(name string) *resourceClaimStatusBuilder {
 	b.CredentialsSecretRef = corev1.LocalObjectReference{Name: name}
 	return b
 }
+func newResourceClaimStatusBuilder() *resourceClaimStatusBuilder {
+	return &resourceClaimStatusBuilder{ResourceClaimStatus: &xpcorev1alpha1.ResourceClaimStatus{}}
+}
 
-//
+// gitlabBuilder
 type gitlabBuilder struct {
 	*v1alpha1.GitLab
 }
 
 func (b *gitlabBuilder) build() *v1alpha1.GitLab { return b.GitLab }
-
 func (b *gitlabBuilder) withMeta(meta metav1.ObjectMeta) *gitlabBuilder {
 	b.ObjectMeta = meta
 	return b
 }
-
+func (b *gitlabBuilder) withSpecDomain(domain string) *gitlabBuilder {
+	b.GitLab.Spec.Domain = domain
+	return b
+}
 func newGitLabBuilder() *gitlabBuilder {
 	return &gitlabBuilder{GitLab: &v1alpha1.GitLab{}}
+}
+
+//
+type statusBuilder struct {
+	*xpcorev1alpha1.ConditionedStatus
+}
+
+func (b *statusBuilder) build() *xpcorev1alpha1.ConditionedStatus { return b.ConditionedStatus }
+func (b *statusBuilder) withFailed(r, m string) *statusBuilder {
+	b.SetFailed(r, m)
+	return b
+}
+
+func newStatusBuilder() *statusBuilder {
+	return &statusBuilder{ConditionedStatus: &xpcorev1alpha1.ConditionedStatus{}}
 }
 
 // Tests section
@@ -589,6 +642,80 @@ func Test_baseResourceReconciler_newNamespacedName(t *testing.T) {
 	}
 }
 
+func Test_baseResourceReconciler_loadHelmValues(t *testing.T) {
+	ctx := context.TODO()
+	testError := errors.New("test-error")
+	testSecretKey := types.NamespacedName{Namespace: testNamespace, Name: "test-secret"}
+	type fields struct {
+		GitLab *v1alpha1.GitLab
+		client client.Client
+		status *xpcorev1alpha1.ResourceClaimStatus
+	}
+	type args struct {
+		values   map[string]string
+		function helmValuesFunction
+	}
+	tests := map[string]struct {
+		fields fields
+		args   args
+		want   error
+	}{
+		"FailureNilStatus": {
+			fields: fields{
+				GitLab: newGitLabBuilder().build(),
+			},
+			args: args{},
+			want: errors.New(errorResourceStatusIsNotFound),
+		},
+		"FailureRetrievingConnectionSecret": {
+			fields: fields{
+				GitLab: newGitLabBuilder().withMeta(testMeta).build(),
+				client: &test.MockClient{
+					MockGet: func(ctx context.Context, key client.ObjectKey, obj runtime.Object) error {
+						return testError
+					},
+				},
+				status: &xpcorev1alpha1.ResourceClaimStatus{
+					CredentialsSecretRef: corev1.LocalObjectReference{Name: testSecretKey.Name},
+				},
+			},
+			args: args{},
+			want: errors.Wrapf(testError, errorFmtFailedToRetrieveConnectionSecret, testSecretKey),
+		},
+		"Successful": {
+			fields: fields{
+				GitLab: newGitLabBuilder().withMeta(testMeta).build(),
+				client: &test.MockClient{
+					MockGet: func(ctx context.Context, key client.ObjectKey, obj runtime.Object) error {
+						if _, ok := obj.(*corev1.Secret); !ok {
+							t.Errorf("baseResourceReconciler.loadHelmValues() unexpected type %T", obj)
+						}
+						if key != testSecretKey {
+							t.Errorf("baseResourceReconciler.loadHelmValues() unexpected key value %s", key)
+						}
+						return nil
+					},
+				},
+				status: &xpcorev1alpha1.ResourceClaimStatus{
+					CredentialsSecretRef: corev1.LocalObjectReference{Name: testSecretKey.Name},
+				},
+			},
+			args: args{
+				function: func(strings map[string]string, s string, secret *corev1.Secret) {},
+			},
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			r := newBaseResourceReconciler(tt.fields.GitLab, tt.fields.client, "foo")
+			r.status = tt.fields.status
+			if diff := cmp.Diff(r.loadHelmValues(ctx, tt.args.values, tt.args.function), tt.want, cmpErrors); diff != "" {
+				t.Errorf("baseResourceReconciler.loadHelmValues() error %s", diff)
+			}
+		})
+	}
+}
+
 func Test_newBaseComponentReconciler(t *testing.T) {
 	type args struct {
 		gitlab *v1alpha1.GitLab
@@ -609,15 +736,15 @@ func Test_newBaseComponentReconciler(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			got := newBaseComponentReconciler(tt.args.gitlab, tt.args.client)
+			got := newBaseResourceReconciler(tt.args.gitlab, tt.args.client, "foo")
 			if diff := cmp.Diff(got, tt.want, cmpopts.IgnoreUnexported(baseResourceReconciler{})); diff != "" {
-				t.Errorf("newBaseComponentReconciler() %s", diff)
+				t.Errorf("newBaseResourceReconciler() %s", diff)
 			}
 		})
 	}
 }
 
-func Test_gitLabReconciler_fail(t *testing.T) {
+func Test_handler_fail(t *testing.T) {
 	ctx := context.TODO()
 	testError := errors.New("test-error")
 
@@ -666,7 +793,7 @@ func Test_gitLabReconciler_fail(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			r := &gitLabReconciler{
+			r := &handle{
 				GitLab: tt.fields.GitLab,
 				client: tt.fields.client,
 			}
@@ -681,7 +808,7 @@ func Test_gitLabReconciler_fail(t *testing.T) {
 	}
 }
 
-func Test_gitLabReconciler_pending(t *testing.T) {
+func Test_handler_pending(t *testing.T) {
 	ctx := context.TODO()
 
 	testError := errors.New("test-error")
@@ -745,7 +872,7 @@ func Test_gitLabReconciler_pending(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			r := &gitLabReconciler{
+			r := &handle{
 				GitLab: tt.fields.GitLab,
 				client: tt.fields.client,
 			}
@@ -760,7 +887,7 @@ func Test_gitLabReconciler_pending(t *testing.T) {
 	}
 }
 
-func Test_gitLabReconciler_update(t *testing.T) {
+func Test_handler_update(t *testing.T) {
 	ctx := context.TODO()
 	testError := errors.New("test-error")
 	tests := map[string]struct {
@@ -781,7 +908,7 @@ func Test_gitLabReconciler_update(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			r := &gitLabReconciler{
+			r := &handle{
 				client: tt.client,
 			}
 			if diff := cmp.Diff(r.update(ctx), tt.wantErr, cmpErrors); diff != "" {
@@ -791,159 +918,305 @@ func Test_gitLabReconciler_update(t *testing.T) {
 	}
 }
 
-//func Test_gitLabReconciler_reconcile(t *testing.T) {
-//	type fields struct {
-//		GitLab         *v1alpha1.GitLab
-//		client         client.Client
-//		resourceClaims []resourceReconciler
-//	}
-//	type args struct {
-//		ctx context.Context
-//	}
-//	tests := map[string]struct {
-//		fields  fields
-//		args    args
-//		want    reconcile.Result
-//		wantErr bool
-//	}{
-//		// TODO: Add test cases.
-//	}
-//	for name, tt := range tests {
-//		t.Run(name, func(t *testing.T) {
-//			r := &gitLabReconciler{
-//				GitLab:         tt.fields.GitLab,
-//				client:         tt.fields.client,
-//				resourceClaims: tt.fields.resourceClaims,
-//			}
-//			got, err := r.reconcile(tt.args.ctx)
-//			if (err != nil) != tt.wantErr {
-//				t.Errorf("gitLabReconciler.reconcile() error = %v, wantErr %v", err, tt.wantErr)
-//				return
-//			}
-//			if diff := cmp.Diff(got, tt.want); diff != "" {
-//				t.Errorf("gitLabReconciler.reconcile() %s", diff)
-//			}
-//		})
-//	}
-//}
-//
-//func Test_gitLabReconciler_reconcileClaims(t *testing.T) {
-//	type fields struct {
-//		GitLab         *v1alpha1.GitLab
-//		client         client.Client
-//		resourceClaims []resourceReconciler
-//	}
-//	type args struct {
-//		ctx    context.Context
-//		claims []resourceReconciler
-//	}
-//	tests := map[string]struct {
-//		fields  fields
-//		args    args
-//		want    reconcile.Result
-//		wantErr bool
-//	}{
-//		// TODO: Add test cases.
-//	}
-//	for name, tt := range tests {
-//		t.Run(name, func(t *testing.T) {
-//			r := &gitLabReconciler{
-//				GitLab:         tt.fields.GitLab,
-//				client:         tt.fields.client,
-//				resourceClaims: tt.fields.resourceClaims,
-//			}
-//			got, err := r.reconcileClaims(tt.args.ctx, tt.args.claims)
-//			if (err != nil) != tt.wantErr {
-//				t.Errorf("gitLabReconciler.reconcileClaims() error = %v, wantErr %v", err, tt.wantErr)
-//				return
-//			}
-//			if diff := cmp.Diff(got, tt.want); diff != "" {
-//				t.Errorf("gitLabReconciler.reconcileClaims() %s", diff)
-//			}
-//		})
-//	}
-//}
-//
-//func Test_gitLabReconciler_reconcileApplication(t *testing.T) {
-//	type fields struct {
-//		GitLab         *v1alpha1.GitLab
-//		client         client.Client
-//		resourceClaims []resourceReconciler
-//	}
-//	type args struct {
-//		ctx    context.Context
-//		claims []resourceReconciler
-//	}
-//	tests := map[string]struct {
-//		name    string
-//		fields  fields
-//		args    args
-//		want    reconcile.Result
-//		wantErr bool
-//	}{
-//		// TODO: Add test cases.
-//	}
-//	for name, tt := range tests {
-//		t.Run(name, func(t *testing.T) {
-//			r := &gitLabReconciler{
-//				GitLab:         tt.fields.GitLab,
-//				client:         tt.fields.client,
-//				resourceClaims: tt.fields.resourceClaims,
-//			}
-//			got, err := r.reconcileApplication(tt.args.ctx, tt.args.claims)
-//			if (err != nil) != tt.wantErr {
-//				t.Errorf("gitLabReconciler.reconcileApplication() error = %v, wantErr %v", err, tt.wantErr)
-//				return
-//			}
-//			if diff := cmp.Diff(got, tt.want); diff != "" {
-//				t.Errorf("gitLabReconciler.reconcileApplication() %s", diff)
-//			}
-//		})
-//	}
-//}
-//
-//func Test_newGitLabReconciler(t *testing.T) {
-//	type args struct {
-//		gitlab *v1alpha1.GitLab
-//		client client.Client
-//	}
-//	tests := map[string]struct {
-//		name string
-//		args args
-//		want *gitLabReconciler
-//	}{
-//		// TODO: Add test cases.
-//	}
-//	for name, tt := range tests {
-//		t.Run(name, func(t *testing.T) {
-//			got := newGitLabReconciler(tt.args.gitlab, tt.args.client)
-//			if diff := cmp.Diff(got, tt.want); diff != "" {
-//				t.Errorf("newGitLabReconciler() %s", diff)
-//			}
-//		})
-//	}
-//}
-//
-//func Test_gitLabReconcilerMill_newReconciler(t *testing.T) {
-//	type args struct {
-//		gitlab *v1alpha1.GitLab
-//		client client.Client
-//	}
-//	tests := map[string]struct {
-//		name string
-//		m    *gitLabReconcilerMill
-//		args args
-//		want reconciler
-//	}{
-//		// TODO: Add test cases.
-//	}
-//	for name, tt := range tests {
-//		t.Run(name, func(t *testing.T) {
-//			m := &gitLabReconcilerMill{}
-//			got := m.newReconciler(tt.args.gitlab, tt.args.client)
-//			if diff := cmp.Diff(got, tt.want); diff != "" {
-//				t.Errorf("gitLabReconcilerMill.newReconciler() %s", diff)
-//			}
-//		})
-//	}
-//}
+func Test_resourceClaimsReconciler_reconcile(t *testing.T) {
+	ctx := context.TODO()
+	testError := errors.New("test-error")
+	type fields struct {
+		handle *handle
+	}
+	type args struct {
+		claims []resourceReconciler
+	}
+	type want struct {
+		err    error
+		res    reconcile.Result
+		status *xpcorev1alpha1.ConditionedStatus
+	}
+	tests := map[string]struct {
+		fields fields
+		args   args
+		want   want
+	}{
+		"Empty": {
+			fields: fields{handle: &handle{}},
+			args:   args{},
+			want:   want{res: reconcileSuccess},
+		},
+		"ReconcileError": {
+			fields: fields{
+				handle: &handle{
+					GitLab: newGitLabBuilder().build(),
+					client: test.NewMockClient(),
+				},
+			},
+			args: args{claims: []resourceReconciler{
+				&mockResourceReconciler{
+					mockReconcile: func(ctx context.Context) error { return testError },
+				},
+			}},
+			want: want{
+				res:    reconcileFailure,
+				status: newStatusBuilder().withFailed(reasonResourceProcessingFailure, testError.Error()).build(),
+			},
+		},
+		"HasFailure": {
+			fields: fields{
+				handle: &handle{
+					GitLab: newGitLabBuilder().build(),
+					client: test.NewMockClient(),
+				},
+			},
+			args: args{claims: []resourceReconciler{
+				&mockResourceReconciler{
+					mockReconcile:    func(ctx context.Context) error { return nil },
+					mockGetClaimKind: func() string { return "test-failed-resource" },
+					mockIsFailed:     func() bool { return true },
+				},
+			}},
+			want: want{
+				res:    reconcileFailure,
+				status: newStatusBuilder().withFailed(reasonHasFailedResources, "test-failed-resource").build(),
+			},
+		},
+		"HasFailureAndPending": {
+			fields: fields{
+				handle: &handle{
+					GitLab: newGitLabBuilder().build(),
+					client: test.NewMockClient(),
+				},
+			},
+			args: args{claims: []resourceReconciler{
+				&mockResourceReconciler{
+					mockReconcile:    func(ctx context.Context) error { return nil },
+					mockGetClaimKind: func() string { return "test-pending-resource" },
+					mockIsFailed:     func() bool { return true },
+				},
+				&mockResourceReconciler{
+					mockReconcile:    func(ctx context.Context) error { return nil },
+					mockGetClaimKind: func() string { return "test-pending-resource" },
+					mockIsFailed:     func() bool { return false },
+					mockIsReady:      func() bool { return false },
+				},
+			}},
+			want: want{
+				res:    reconcileFailure,
+				status: newStatusBuilder().withFailed(reasonHasFailedResources, "test-failed-resource").build(),
+			},
+		},
+		"HasPendingOnly": {
+			fields: fields{
+				handle: &handle{
+					GitLab: newGitLabBuilder().build(),
+					client: test.NewMockClient(),
+				},
+			},
+			args: args{claims: []resourceReconciler{
+				&mockResourceReconciler{
+					mockReconcile:    func(ctx context.Context) error { return nil },
+					mockGetClaimKind: func() string { return "test-pending-resource" },
+					mockIsFailed:     func() bool { return false },
+					mockIsReady:      func() bool { return false },
+				},
+			}},
+			want: want{
+				res:    reconcileWait,
+				status: newStatusBuilder().withFailed(reasonHasPendingResources, "test-pending-resource").build(),
+			},
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			r := &resourceClaimsReconciler{
+				handle: tt.fields.handle,
+			}
+			got, err := r.reconcile(ctx, tt.args.claims)
+			if diff := cmp.Diff(err, tt.want.err, cmpErrors); diff != "" {
+				t.Errorf("resourceClaimsReconciler.reconcile() error %s", diff)
+				return
+			}
+			if diff := cmp.Diff(got, tt.want.res); diff != "" {
+				t.Errorf("resourceClaimsReconciler.reconcile() %s", diff)
+			}
+		})
+	}
+}
+
+func Test_applicationReconciler_reconcile(t *testing.T) {
+	ctx := context.TODO()
+	testError := errors.New("test-error")
+	type fields struct {
+		handle *handle
+	}
+	type args struct {
+		resources []resourceReconciler
+	}
+	type want struct {
+		res reconcile.Result
+		err error
+	}
+	tests := map[string]struct {
+		fields fields
+		args   args
+		want   want
+	}{
+		"HelmValuesFailure": {
+			fields: fields{
+				handle: &handle{
+					GitLab: newGitLabBuilder().build(),
+					client: &test.MockClient{
+						MockStatusUpdate: func(ctx context.Context, obj runtime.Object) error {
+							gl, ok := obj.(*v1alpha1.GitLab)
+							if !ok {
+								t.Errorf("applicationReconciler.reconcile() unxpected type %T", obj)
+							}
+							if gl.Status.State != xpcorev1alpha1.Failed {
+								t.Errorf("applicationReconciler.reconcile() unxpected statu.state %s", gl.Status.State)
+							}
+							return nil
+						},
+					},
+				},
+			},
+			args: args{
+				resources: []resourceReconciler{
+					&mockResourceReconciler{
+						mockGetClaimKind:  func() string { return "test-resource" },
+						mockIsReady:       func() bool { return true },
+						mockGetHelmValues: func(ctx context.Context, vals map[string]string) error { return testError },
+					},
+				},
+			},
+			want: want{res: reconcileFailure},
+		},
+		"Successful": {
+			fields: fields{
+				handle: &handle{
+					GitLab: newGitLabBuilder().build(),
+					client: test.NewMockClient(),
+				},
+			},
+			args: args{
+				resources: []resourceReconciler{
+					&mockResourceReconciler{
+						mockGetClaimKind:  func() string { return "test-resource" },
+						mockIsReady:       func() bool { return true },
+						mockGetHelmValues: func(ctx context.Context, vals map[string]string) error { return nil },
+					},
+				},
+			},
+			want: want{res: reconcileSuccess},
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			a := &applicationReconciler{
+				handle: tt.fields.handle,
+			}
+			got, err := a.reconcile(ctx, tt.args.resources)
+			if diff := cmp.Diff(err, tt.want.err, cmpErrors); diff != "" {
+				t.Errorf("applicationReconciler.reconcile() error %s", diff)
+				return
+			}
+			if diff := cmp.Diff(got, tt.want.res); diff != "" {
+				t.Errorf("applicationReconciler.reconcile() %s", diff)
+			}
+		})
+	}
+}
+
+func Test_gitLabReconciler_reconcile(t *testing.T) {
+	ctx := context.TODO()
+	testDomain := "foo.bar"
+	testError := errors.New("test-error")
+	type fields struct {
+		gitlab           *v1alpha1.GitLab
+		claimsReconciler componentsReconciler
+		appsReconciler   componentsReconciler
+	}
+	type want struct {
+		res reconcile.Result
+		err error
+	}
+	tests := map[string]struct {
+		fields fields
+		want   want
+	}{
+		"FailureReconcilingResourceClaims": {
+			fields: fields{
+				gitlab: newGitLabBuilder().withMeta(testMeta).withSpecDomain(testDomain).build(),
+				claimsReconciler: &mockComponentsReconciler{
+					mockReconcile: func(ctx context.Context, reconcilers []resourceReconciler) (reconcile.Result, error) {
+						return reconcileFailure, testError
+					},
+				},
+			},
+			want: want{
+				res: reconcileFailure,
+				err: testError,
+			},
+		},
+		"FailureReconcilingApplications": {
+			fields: fields{
+				gitlab: newGitLabBuilder().withMeta(testMeta).withSpecDomain(testDomain).build(),
+				claimsReconciler: &mockComponentsReconciler{
+					mockReconcile: func(ctx context.Context, reconcilers []resourceReconciler) (reconcile.Result, error) {
+						return reconcileSuccess, nil
+					},
+				},
+				appsReconciler: &mockComponentsReconciler{
+					mockReconcile: func(ctx context.Context, reconcilers []resourceReconciler) (reconcile.Result, error) {
+						return reconcileFailure, testError
+					},
+				},
+			},
+			want: want{
+				res: reconcileFailure,
+				err: testError,
+			},
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			r := &gitLabReconciler{
+				handle: &handle{
+					GitLab: tt.fields.gitlab,
+				},
+				resourceClaimsReconciler: tt.fields.claimsReconciler,
+				applicationReconciler:    tt.fields.appsReconciler,
+			}
+			got, err := r.reconcile(ctx)
+			if diff := cmp.Diff(err, tt.want.err, cmpErrors); diff != "" {
+				t.Errorf("gitLabReconciler.reconcile() error  %s", diff)
+				return
+			}
+			if diff := cmp.Diff(got, tt.want.res); diff != "" {
+				t.Errorf("gitLabReconciler.reconcile() %s", diff)
+			}
+			if tt.fields.gitlab.Status.Endpoint == "" {
+				t.Errorf("gitLabReconciler.reconcile() endpoint is emtpy")
+			}
+		})
+	}
+}
+
+func Test_newGitLabReconciler(t *testing.T) {
+	type args struct {
+		gitlab *v1alpha1.GitLab
+		client client.Client
+	}
+	tests := map[string]struct {
+		args args
+	}{
+		"Default": {
+			args: args{
+				gitlab: newGitLabBuilder().build(),
+				client: test.NewMockClient(),
+			},
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			newGitLabReconciler(tt.args.gitlab, tt.args.client)
+		})
+	}
+}

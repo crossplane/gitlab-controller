@@ -66,10 +66,14 @@ func (r *kubernetesReconciler) getClaimKind() string {
 	return kubernetesClaimKind
 }
 
+func (r *kubernetesReconciler) getHelmValues(ctx context.Context, values map[string]string) error {
+	return nil
+}
+
 var _ resourceReconciler = &kubernetesReconciler{}
 
 func newKubernetesReconciler(gitlab *v1alpha1.GitLab, client client.Client) *kubernetesReconciler {
-	base := newBaseComponentReconciler(gitlab, client)
+	base := newBaseResourceReconciler(gitlab, client, "")
 	return &kubernetesReconciler{
 		baseResourceReconciler: base,
 		resourceClassFinder:    base,
