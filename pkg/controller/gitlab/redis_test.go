@@ -241,6 +241,7 @@ func Test_redisHelmValues(t *testing.T) {
 			want: want{
 				data: map[string]string{
 					helmValueRedisHostKey: "",
+					helmRedisEnabled:      "false",
 				},
 			},
 		},
@@ -257,6 +258,7 @@ func Test_redisHelmValues(t *testing.T) {
 			want: want{
 				data: map[string]string{
 					helmValueRedisHostKey: "bar",
+					helmRedisEnabled:      "false",
 				},
 			},
 		},

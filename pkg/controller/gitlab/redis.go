@@ -76,10 +76,12 @@ func (r *redisReconciler) getHelmValues(ctx context.Context, values map[string]s
 const (
 	helmRedisComponentName = redisClaimKind
 	helmValueRedisHostKey  = "global." + helmRedisComponentName + ".host"
+	helmRedisEnabled       = "redis.enabled"
 )
 
 func redisHelmValues(values map[string]string, _ string, secret *corev1.Secret) {
 	values[helmValueRedisHostKey] = string(secret.Data[xpcorev1alpha1.ResourceCredentialsSecretEndpointKey])
+	values[helmRedisEnabled] = "false"
 }
 
 var _ resourceReconciler = &redisReconciler{}

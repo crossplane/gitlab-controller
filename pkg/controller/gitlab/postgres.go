@@ -78,12 +78,14 @@ const (
 	helmValuePsqlHostKey      = "global." + helmPostgresComponentName + "psql.host"
 	helmValuePsqlDatabaseKey  = "global." + helmPostgresComponentName + ".database"
 	helmValuePsqlUsernameKey  = "global." + helmPostgresComponentName + ".username"
+	helmPostgresqlInstall     = "postgresql.install"
 )
 
 func postgresHelmValues(values map[string]string, _ string, secret *corev1.Secret) {
 	values[helmValuePsqlHostKey] = string(secret.Data[xpcorev1alpha1.ResourceCredentialsSecretEndpointKey])
 	values[helmValuePsqlUsernameKey] = string(secret.Data[xpcorev1alpha1.ResourceCredentialsSecretUserKey])
 	values[helmValuePsqlDatabaseKey] = "postgres"
+	values[helmPostgresqlInstall] = "false"
 }
 
 var _ resourceReconciler = &postgresReconciler{}
