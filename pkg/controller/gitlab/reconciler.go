@@ -248,6 +248,8 @@ func (a *applicationReconciler) reconcile(ctx context.Context, resources []resou
 			return reconcileFailure, a.fail(ctx, reasonFailedToGenerateHelmValues, err.Error())
 		}
 	}
+	minioHelmValues(helmValues)
+
 	// TODO: This is where we are ready to generate GitLab Kubernetes Application and
 	// 	update it with required resource
 	// 	secrets (all bucket secrets + postgres secret)
@@ -282,7 +284,7 @@ func newGitLabReconciler(gitlab *v1alpha1.GitLab, client client.Client) *gitLabR
 		GitLab: gitlab,
 		client: client,
 	}
-	r := &gitLabReconciler{
+	return &gitLabReconciler{
 		handle: h,
 		resourceClaims: []resourceReconciler{
 			newKubernetesReconciler(gitlab, client),
@@ -298,10 +300,9 @@ func newGitLabReconciler(gitlab *v1alpha1.GitLab, client client.Client) *gitLabR
 			newBucketReconciler(gitlab, client, "registry", bucketConnectionHelmValues),
 			newBucketReconciler(gitlab, client, "uploads", bucketConnectionHelmValues),
 		},
+		resourceClaimsReconciler: &resourceClaimsReconciler{handle: h},
+		applicationReconciler:    &applicationReconciler{handle: h},
 	}
-	r.resourceClaimsReconciler = &resourceClaimsReconciler{handle: h}
-	r.applicationReconciler = &applicationReconciler{handle: h}
-	return r
 }
 
 type helmValuesFunction func(map[string]string, string, *corev1.Secret)
@@ -326,3 +327,9 @@ func (m *gitLabReconcilerMill) newReconciler(gitlab *v1alpha1.GitLab, client cli
 }
 
 var _ reconcilerMill = &gitLabReconcilerMill{}
+
+const helmMinioEnabled = "global.minio.enabled"
+
+func minioHelmValues(values map[string]string) {
+	values[helmMinioEnabled] = "false"
+}

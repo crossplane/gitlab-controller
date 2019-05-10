@@ -172,7 +172,7 @@ const (
 	helmValueBackupsTempBucket   = "global.appConfig.backups.tmpBucket"
 )
 
-// bucketConnectionHelmValues map of helm set key/value paris
+// bucketConnectionHelmValues map of helm set key/value pairs
 // https://docs.gitlab.com/charts/advanced/external-object-storage/index.html#lfs-artifacts-uploads-packages-external-diffs-pseudonymizer
 func bucketConnectionHelmValues(values map[string]string, name string, secret *corev1.Secret) {
 	values[fmt.Sprintf(helmValueBucketFmt, name)] = string(secret.Data[xpcorev1alpha1.ResourceCredentialsSecretEndpointKey])
@@ -180,7 +180,7 @@ func bucketConnectionHelmValues(values map[string]string, name string, secret *c
 	values[fmt.Sprintf(helmValueConnectionKeyFmt, name)] = connectionKey
 }
 
-// bucketBackupsHelmValues map of helm set key/value paris
+// bucketBackupsHelmValues map of helm set key/value pairs
 // https://docs.gitlab.com/charts/advanced/external-object-storage/index.html#backups
 func bucketBackupsHelmValues(values map[string]string, name string, secret *corev1.Secret) {
 	values[fmt.Sprintf(helmValueBucketFmt, name)] = string(secret.Data[xpcorev1alpha1.ResourceCredentialsSecretEndpointKey])
@@ -188,7 +188,7 @@ func bucketBackupsHelmValues(values map[string]string, name string, secret *core
 	values[helmValueTaskRunnerKey] = configKey
 }
 
-// bucketBackupsTempHelmValues map of helm set key/value paris
+// bucketBackupsTempHelmValues map of helm set key/value pairs
 // https://docs.gitlab.com/charts/advanced/external-object-storage/index.html#backups
 func bucketBackupsTempHelmValues(values map[string]string, name string, _ *corev1.Secret) {
 	values[helmValueBackupsTempBucket] = name

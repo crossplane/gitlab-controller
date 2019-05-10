@@ -181,3 +181,39 @@ func Test_newKubernetesReconciler(t *testing.T) {
 		t.Errorf("newRedisReconciler() GitLab %s", diff)
 	}
 }
+
+func Test_kubernetesReconciler_getHelmValues(t *testing.T) {
+	type fields struct {
+		baseResourceReconciler *baseResourceReconciler
+		resourceClassFinder    resourceClassFinder
+	}
+	type args struct {
+		ctx    context.Context
+		values map[string]string
+	}
+	tests := map[string]struct {
+		fields fields
+		args   args
+	}{
+		"Default": {
+			fields: fields{
+				baseResourceReconciler: newBaseResourceReconciler(newGitLabBuilder().build(), test.NewMockClient(), "foo"),
+			},
+			args: args{
+				ctx:    context.TODO(),
+				values: make(map[string]string),
+			},
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			r := &kubernetesReconciler{
+				baseResourceReconciler: tt.fields.baseResourceReconciler,
+				resourceClassFinder:    tt.fields.resourceClassFinder,
+			}
+			if err := r.getHelmValues(tt.args.ctx, tt.args.values); err != nil {
+				t.Errorf("kubernetesReconciler.getHelmValues() error = %v", err)
+			}
+		})
+	}
+}

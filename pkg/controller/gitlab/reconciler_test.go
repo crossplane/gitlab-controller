@@ -1198,3 +1198,25 @@ func Test_gitLabReconciler_reconcile(t *testing.T) {
 		})
 	}
 }
+
+func Test_newGitLabReconciler(t *testing.T) {
+	type args struct {
+		gitlab *v1alpha1.GitLab
+		client client.Client
+	}
+	tests := map[string]struct {
+		args args
+	}{
+		"Default": {
+			args: args{
+				gitlab: newGitLabBuilder().build(),
+				client: test.NewMockClient(),
+			},
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			newGitLabReconciler(tt.args.gitlab, tt.args.client)
+		})
+	}
+}
