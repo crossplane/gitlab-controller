@@ -128,11 +128,11 @@ func Test_kubernetesReconciler_reconcile(t *testing.T) {
 					GitLab: newGitLabBuilder().withMeta(testMeta).build(),
 					client: &test.MockClient{
 						MockGet: func(ctx context.Context, key client.ObjectKey, obj runtime.Object) error {
-							psql, ok := obj.(*xpcomputev1alpha1.KubernetesCluster)
+							o, ok := obj.(*xpcomputev1alpha1.KubernetesCluster)
 							if !ok {
 								return errors.Errorf("kubernetesReconciler.reconcile() type: %T", obj)
 							}
-							psql.Status = *newResourceClaimStatusBuilder().withReadyStatus().build()
+							o.Status = *newResourceClaimStatusBuilder().withReadyStatus().build()
 							return nil
 						},
 						MockCreate: func(ctx context.Context, obj runtime.Object) error { return nil },
