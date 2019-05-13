@@ -156,11 +156,11 @@ func Test_bucketReconciler_reconcile(t *testing.T) {
 				gitlab: newGitLabBuilder().withMeta(testMeta).build(),
 				client: &test.MockClient{
 					MockGet: func(ctx context.Context, key client.ObjectKey, obj runtime.Object) error {
-						psql, ok := obj.(*xpstoragev1alpha1.Bucket)
+						o, ok := obj.(*xpstoragev1alpha1.Bucket)
 						if !ok {
 							return errors.Errorf("bucketReconciler.reconcile() type: %T", obj)
 						}
-						psql.Status = *newResourceClaimStatusBuilder().withCreatingStatus().build()
+						o.Status = *newResourceClaimStatusBuilder().withCreatingStatus().build()
 						return nil
 					},
 					MockCreate: func(ctx context.Context, obj runtime.Object) error { return nil },
@@ -181,11 +181,11 @@ func Test_bucketReconciler_reconcile(t *testing.T) {
 				gitlab: newGitLabBuilder().withMeta(testMeta).build(),
 				client: &test.MockClient{
 					MockGet: func(ctx context.Context, key client.ObjectKey, obj runtime.Object) error {
-						psql, ok := obj.(*xpstoragev1alpha1.Bucket)
+						o, ok := obj.(*xpstoragev1alpha1.Bucket)
 						if !ok {
 							return errors.Errorf("bucketReconciler.reconcile() type: %T", obj)
 						}
-						psql.Status = *newResourceClaimStatusBuilder().withReadyStatus().build()
+						o.Status = *newResourceClaimStatusBuilder().withReadyStatus().build()
 						return nil
 					},
 					MockCreate: func(ctx context.Context, obj runtime.Object) error { return nil },

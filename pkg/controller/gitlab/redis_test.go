@@ -129,11 +129,11 @@ func Test_redisReconciler_reconcile(t *testing.T) {
 					GitLab: newGitLabBuilder().withMeta(testMeta).build(),
 					client: &test.MockClient{
 						MockGet: func(ctx context.Context, key client.ObjectKey, obj runtime.Object) error {
-							psql, ok := obj.(*xpcachev1alpha1.RedisCluster)
+							o, ok := obj.(*xpcachev1alpha1.RedisCluster)
 							if !ok {
 								return errors.Errorf("redisReconciler.reconcile() type: %T", obj)
 							}
-							psql.Status = *newResourceClaimStatusBuilder().withReadyStatus().build()
+							o.Status = *newResourceClaimStatusBuilder().withReadyStatus().build()
 							return nil
 						},
 						MockCreate: func(ctx context.Context, obj runtime.Object) error { return nil },
