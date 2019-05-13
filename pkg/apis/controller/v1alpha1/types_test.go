@@ -277,22 +277,22 @@ func TestGitLab_GetClusterNamespace(t *testing.T) {
 	}
 }
 
-func TestGitLab_GetClusterSelector(t *testing.T) {
+func TestGitLab_GetClusterRef(t *testing.T) {
 	tests := map[string]struct {
 		spec GitLabSpec
-		want *metav1.LabelSelector
+		want *corev1.ObjectReference
 	}{
 		"NoSelector": {spec: GitLabSpec{}, want: nil},
-		"Custom":     {spec: GitLabSpec{ClusterSelector: &metav1.LabelSelector{}}, want: &metav1.LabelSelector{}},
+		"Custom":     {spec: GitLabSpec{ClusterRef: &corev1.ObjectReference{}}, want: &corev1.ObjectReference{}},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			gl := &GitLab{
 				Spec: tt.spec,
 			}
-			got := gl.GetClusterSelector()
+			got := gl.GetClusterRef()
 			if diff := cmp.Diff(got, tt.want); diff != "" {
-				t.Errorf("GitLab.GetClusterSelector() %s", diff)
+				t.Errorf("GitLab.GetClusterRef() %s", diff)
 			}
 		})
 	}

@@ -3,6 +3,7 @@ kind: GitLab
 metadata:
   name: demo
 spec:
+#  clusterRef:
   domain: my-domain.io
   hostSuffix: demo
   email: me@my-domain.io

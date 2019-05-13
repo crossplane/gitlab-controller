@@ -40,8 +40,9 @@ spec:
             clusterNamespace:
               description: ClusterNamespace
               type: string
-            clusterSelector:
-              description: ClusterSelector label based
+            clusterRef:
+              description: ClusterRef to a target kubernetes cluster where a GitLab
+                controller will deploy GitLab application components
               type: object
             domain:
               description: Domain which will contain records to resolve gitlab, registry,

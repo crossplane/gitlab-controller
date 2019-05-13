@@ -20,7 +20,7 @@ limitations under the License.
 package v1alpha1
 
 import (
-	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	v1 "k8s.io/api/core/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
 )
 
@@ -89,10 +89,10 @@ func (in *GitLabList) DeepCopyObject() runtime.Object {
 func (in *GitLabSpec) DeepCopyInto(out *GitLabSpec) {
 	*out = *in
 	out.ProviderRef = in.ProviderRef
-	if in.ClusterSelector != nil {
-		in, out := &in.ClusterSelector, &out.ClusterSelector
-		*out = new(v1.LabelSelector)
-		(*in).DeepCopyInto(*out)
+	if in.ClusterRef != nil {
+		in, out := &in.ClusterRef, &out.ClusterRef
+		*out = new(v1.ObjectReference)
+		**out = **in
 	}
 	return
 }

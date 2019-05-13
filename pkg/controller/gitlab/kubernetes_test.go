@@ -24,7 +24,7 @@ import (
 	xpcorev1alpha1 "github.com/crossplaneio/crossplane/pkg/apis/core/v1alpha1"
 	"github.com/google/go-cmp/cmp"
 	"github.com/pkg/errors"
-	v1 "k8s.io/api/core/v1"
+	corev1 "k8s.io/api/core/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -50,19 +50,63 @@ func Test_kubernetesReconciler_reconcile(t *testing.T) {
 		fields fields
 		want   want
 	}{
+		"SuccessfulWithClusterRef": {
+			fields: fields{
+				base: &baseResourceReconciler{
+					GitLab: newGitLabBuilder().withSpecClusterRef(&corev1.ObjectReference{Name: testName, Namespace: testNamespace}).build(),
+					client: &test.MockClient{
+						MockGet: func(ctx context.Context, key client.ObjectKey, obj runtime.Object) error {
+							o, ok := obj.(*xpcomputev1alpha1.KubernetesCluster)
+							if !ok {
+								t.Errorf("kubernetesReconciler.reconcile() unepxected type %T", obj)
+							}
+							if diff := cmp.Diff(key, testKey); diff != "" {
+								t.Errorf("kubernetesReconciler.reconcile() unepxected key %s", diff)
+							}
+							o.Status.SetCreating()
+							return nil
+						},
+					},
+				},
+			},
+			want: want{
+				status: newResourceClaimStatusBuilder().withCreatingStatus().build(),
+			},
+		},
+		"FailureWithClusterRef": {
+			fields: fields{
+				base: &baseResourceReconciler{
+					GitLab: newGitLabBuilder().withSpecClusterRef(&corev1.ObjectReference{Name: testName, Namespace: testNamespace}).build(),
+					client: &test.MockClient{
+						MockGet: func(ctx context.Context, key client.ObjectKey, obj runtime.Object) error {
+							_, ok := obj.(*xpcomputev1alpha1.KubernetesCluster)
+							if !ok {
+								t.Errorf("kubernetesReconciler.reconcile() unepxected type %T", obj)
+							}
+							if diff := cmp.Diff(key, testKey); diff != "" {
+								t.Errorf("kubernetesReconciler.reconcile() unepxected key %s", diff)
+							}
+							return testError
+						},
+					},
+				},
+			},
+			want: want{err: errors.Wrapf(testError, errorFmtFailedToRetrieveInstance, kubernetesClaimKind, testKey)},
+		},
 		"FailToFindResourceClass": {
 			fields: fields{
 				base: &baseResourceReconciler{
 					GitLab: newGitLabBuilder().build(),
 				},
 				finder: &mockResourceClassFinder{
-					mockFind: func(ctx context.Context, provider v1.ObjectReference, resource string) (*v1.ObjectReference, error) {
+					mockFind: func(ctx context.Context, provider corev1.ObjectReference, resource string) (*corev1.ObjectReference, error) {
 						return nil, testError
 					},
 				},
 			},
-			want: want{err: errors.Wrapf(testError, errorFmtFailedToFindResourceClass, kubernetesClaimKind,
-				newGitLabBuilder().build().GetProviderRef())},
+			want: want{
+				err: errors.Wrapf(testError, errorFmtFailedToFindResourceClass, kubernetesClaimKind, newGitLabBuilder().build().GetProviderRef()),
+			},
 		},
 		"FailToCreate": {
 			fields: fields{
@@ -78,7 +122,7 @@ func Test_kubernetesReconciler_reconcile(t *testing.T) {
 					},
 				},
 				finder: &mockResourceClassFinder{
-					mockFind: func(ctx context.Context, provider v1.ObjectReference, resource string) (*v1.ObjectReference, error) {
+					mockFind: func(ctx context.Context, provider corev1.ObjectReference, resource string) (*corev1.ObjectReference, error) {
 						return nil, nil
 					},
 				},
@@ -96,7 +140,7 @@ func Test_kubernetesReconciler_reconcile(t *testing.T) {
 					},
 				},
 				finder: &mockResourceClassFinder{
-					mockFind: func(ctx context.Context, provider v1.ObjectReference, resource string) (*v1.ObjectReference, error) {
+					mockFind: func(ctx context.Context, provider corev1.ObjectReference, resource string) (*corev1.ObjectReference, error) {
 						return nil, nil
 					},
 				},
@@ -115,7 +159,7 @@ func Test_kubernetesReconciler_reconcile(t *testing.T) {
 					},
 				},
 				finder: &mockResourceClassFinder{
-					mockFind: func(ctx context.Context, provider v1.ObjectReference, resource string) (*v1.ObjectReference, error) {
+					mockFind: func(ctx context.Context, provider corev1.ObjectReference, resource string) (*corev1.ObjectReference, error) {
 						return nil, nil
 					},
 				},
@@ -139,7 +183,7 @@ func Test_kubernetesReconciler_reconcile(t *testing.T) {
 					},
 				},
 				finder: &mockResourceClassFinder{
-					mockFind: func(ctx context.Context, provider v1.ObjectReference, resource string) (*v1.ObjectReference, error) {
+					mockFind: func(ctx context.Context, provider corev1.ObjectReference, resource string) (*corev1.ObjectReference, error) {
 						return nil, nil
 					},
 				},

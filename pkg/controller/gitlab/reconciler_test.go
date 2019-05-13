@@ -151,6 +151,10 @@ func (b *gitlabBuilder) withMeta(meta metav1.ObjectMeta) *gitlabBuilder {
 	b.ObjectMeta = meta
 	return b
 }
+func (b *gitlabBuilder) withSpecClusterRef(ref *corev1.ObjectReference) *gitlabBuilder {
+	b.GitLab.Spec.ClusterRef = ref
+	return b
+}
 func (b *gitlabBuilder) withSpecDomain(domain string) *gitlabBuilder {
 	b.GitLab.Spec.Domain = domain
 	return b
