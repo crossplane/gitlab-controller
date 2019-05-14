@@ -22,6 +22,7 @@ import (
 	xpcomputev1alpha1 "github.com/crossplaneio/crossplane/pkg/apis/compute/v1alpha1"
 	"github.com/pkg/errors"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/crossplaneio/gitlab-controller/pkg/apis/controller/v1alpha1"
@@ -38,24 +39,36 @@ type kubernetesReconciler struct {
 }
 
 func (r *kubernetesReconciler) reconcile(ctx context.Context) error {
-	ref, err := r.resourceClassFinder.find(ctx, r.GetProviderRef(), xpcomputev1alpha1.KubernetesClusterKindAPIVersion)
-	if err != nil {
-		return errors.Wrapf(err, errorFmtFailedToFindResourceClass, r.getClaimKind(), r.GetProviderRef())
-	}
+	cluster := &xpcomputev1alpha1.KubernetesCluster{}
 
-	cluster := &xpcomputev1alpha1.KubernetesCluster{
-		ObjectMeta: r.newObjectMeta(),
-		Spec: xpcomputev1alpha1.KubernetesClusterSpec{
-			ClassRef: ref,
-		},
-	}
-	key := r.newNamespacedName()
-
-	if err := r.client.Get(ctx, key, cluster); err != nil {
-		if kerrors.IsNotFound(err) {
-			return errors.Wrapf(r.client.Create(ctx, cluster), errorFmtFailedToCreate, r.getClaimKind(), key)
+	// Check if spec contains cluster reference
+	if ref := r.GetClusterRef(); ref != nil {
+		// Use Cluster reference to retrieve the existing Kubernetes cluster
+		key := types.NamespacedName{Namespace: ref.Namespace, Name: ref.Name}
+		if err := r.client.Get(ctx, key, cluster); err != nil {
+			return errors.Wrapf(err, errorFmtFailedToRetrieveInstance, r.getClaimKind(), key)
 		}
-		return errors.Wrapf(err, errorFmtFailedToRetrieveInstance, r.getClaimKind(), key)
+	} else {
+		// Find and use provider reference to create new Kubernetes cluster
+		ref, err := r.resourceClassFinder.find(ctx, r.GetProviderRef(), xpcomputev1alpha1.KubernetesClusterKindAPIVersion)
+		if err != nil {
+			return errors.Wrapf(err, errorFmtFailedToFindResourceClass, r.getClaimKind(), r.GetProviderRef())
+		}
+
+		cluster = &xpcomputev1alpha1.KubernetesCluster{
+			ObjectMeta: r.newObjectMeta(),
+			Spec: xpcomputev1alpha1.KubernetesClusterSpec{
+				ClassRef: ref,
+			},
+		}
+		key := r.newNamespacedName()
+
+		if err := r.client.Get(ctx, key, cluster); err != nil {
+			if kerrors.IsNotFound(err) {
+				return errors.Wrapf(r.client.Create(ctx, cluster), errorFmtFailedToCreate, r.getClaimKind(), key)
+			}
+			return errors.Wrapf(err, errorFmtFailedToRetrieveInstance, r.getClaimKind(), key)
+		}
 	}
 
 	r.status = &cluster.Status

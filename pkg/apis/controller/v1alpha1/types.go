@@ -48,8 +48,9 @@ type GitLabSpec struct {
 	// ReclaimPolicy controls application cleanup
 	ReclaimPolicy xpcorev1alpha1.ReclaimPolicy `json:"reclaimPolicy,omitempty"`
 
-	// ClusterSelector label based
-	ClusterSelector *metav1.LabelSelector `json:"clusterSelector,omitempty"`
+	// ClusterRef to a target kubernetes cluster where a GitLab controller will
+	// deploy GitLab application components
+	ClusterRef *corev1.ObjectReference `json:"clusterRef,omitempty"`
 
 	// ClusterNamespace
 	ClusterNamespace string `json:"clusterNamespace,omitempty"`
@@ -100,9 +101,9 @@ func (in *GitLab) GetClusterNamespace() string {
 	return in.Spec.ClusterNamespace
 }
 
-// GetClusterSelector spec property
-func (in *GitLab) GetClusterSelector() *metav1.LabelSelector {
-	return in.Spec.ClusterSelector
+// GetClusterRef spec property
+func (in *GitLab) GetClusterRef() *corev1.ObjectReference {
+	return in.Spec.ClusterRef
 }
 
 // GetEndpoint returns a gitlab service endpoint
