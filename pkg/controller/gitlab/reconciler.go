@@ -49,6 +49,9 @@ const (
 
 	resourceAnnotationKey = "resource"
 
+	// delimiter to use when creating composite names for object metadata
+	objectMetaNameDelimiter = "-"
+
 	errorFmtFailedToListResourceClasses        = "failed to list resource classes: [%s/%s, %s]"
 	errorFmtResourceClassNotFound              = "resource class not found for provider: [%s/%s, %s]"
 	errorFmtNotSupportedProvider               = "not supported provider: %s"
@@ -166,7 +169,7 @@ func (r *baseResourceReconciler) find(ctx context.Context, provider corev1.Objec
 func (r *baseResourceReconciler) newObjectMeta(nameSuffixes ...string) metav1.ObjectMeta {
 	return metav1.ObjectMeta{
 		Namespace:       r.GetNamespace(),
-		Name:            strings.Join(append([]string{r.GetName()}, nameSuffixes...), "-"),
+		Name:            strings.Join(append(append([]string{}, r.GetName()), nameSuffixes...), objectMetaNameDelimiter),
 		Labels:          map[string]string{"app": r.GetName()},
 		OwnerReferences: []metav1.OwnerReference{r.ToOwnerReference()},
 	}
