@@ -270,8 +270,17 @@ func (r *gitLabReconciler) reconcile(ctx context.Context) (reconcile.Result, err
 
 	log.V(logging.Debug).Info("reconciling resource claims")
 	res, err := r.resourceClaimsReconciler.reconcile(ctx, r.resourceClaims)
-	if res != reconcileSuccess {
+	if err != nil {
 		log.Error(err, "claim reconciliation failed")
+		return res, err
+	}
+
+	switch res {
+	case reconcileFailure:
+		log.Info("one or more claims have failed status", "reconcile action", "rerun")
+		return res, err
+	case reconcileWait:
+		log.Info("one or more claims have pending status", "reconcile action", "wait")
 		return res, err
 	}
 

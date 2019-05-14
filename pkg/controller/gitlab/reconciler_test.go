@@ -1145,7 +1145,7 @@ func Test_gitLabReconciler_reconcile(t *testing.T) {
 		fields fields
 		want   want
 	}{
-		"FailureReconcilingResourceClaims": {
+		"ReconcileResourceClaimsWithError": {
 			fields: fields{
 				gitlab: newGitLabBuilder().withMeta(testMeta).withSpecDomain(testDomain).build(),
 				claimsReconciler: &mockComponentsReconciler{
@@ -1157,6 +1157,34 @@ func Test_gitLabReconciler_reconcile(t *testing.T) {
 			want: want{
 				res: reconcileFailure,
 				err: testError,
+			},
+		},
+		"ReconcileResourceClaimsWithFailedStatus": {
+			fields: fields{
+				gitlab: newGitLabBuilder().withMeta(testMeta).withSpecDomain(testDomain).build(),
+				claimsReconciler: &mockComponentsReconciler{
+					mockReconcile: func(ctx context.Context, reconcilers []resourceReconciler) (reconcile.Result, error) {
+						return reconcileFailure, nil
+					},
+				},
+			},
+			want: want{
+				res: reconcileFailure,
+				err: nil,
+			},
+		},
+		"ReconcileResourceClaimsWithPendingStatus": {
+			fields: fields{
+				gitlab: newGitLabBuilder().withMeta(testMeta).withSpecDomain(testDomain).build(),
+				claimsReconciler: &mockComponentsReconciler{
+					mockReconcile: func(ctx context.Context, reconcilers []resourceReconciler) (reconcile.Result, error) {
+						return reconcileWait, nil
+					},
+				},
+			},
+			want: want{
+				res: reconcileWait,
+				err: nil,
 			},
 		},
 		"FailureReconcilingApplications": {
