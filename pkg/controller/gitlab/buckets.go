@@ -35,7 +35,7 @@ import (
 
 const (
 	bucketClaimKind     = "bucket"
-	bucketNameDelimiter = objectMetaNameDelimiter
+	bucketNameDelimiter = "-"
 
 	errorMsgEmptyConnectionSecret = "connection secret has no data"
 	errorFmtEmptyToken            = "connection secret is missing required key %s"
@@ -160,7 +160,7 @@ func (r *bucketReconciler) reconcile(ctx context.Context) error {
 }
 
 func (r *bucketReconciler) getClaimKind() string {
-	return bucketClaimKind + objectMetaNameDelimiter + r.componentName
+	return bucketClaimKind + "-" + r.componentName
 }
 
 func (r *bucketReconciler) getHelmValues(ctx context.Context, dst chartutil.Values, secretPrefix string) error {

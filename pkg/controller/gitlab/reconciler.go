@@ -50,8 +50,6 @@ const (
 	resourceAnnotationKey = "resource"
 
 	// delimiter to use when creating composite names for object metadata
-	objectMetaNameDelimiter = "-"
-
 	errorFmtFailedToListResourceClasses        = "failed to list resource classes: [%s/%s, %s]"
 	errorFmtResourceClassNotFound              = "resource class not found for provider: [%s/%s, %s]"
 	errorFmtNotSupportedProvider               = "not supported provider: %s"
@@ -148,7 +146,8 @@ func (r *baseResourceReconciler) getClaimConnectionSecret(ctx context.Context) (
 
 // find returns resource class object reference base on provider and resource values
 // Note: if provider is not found, nil value is returned w/out error
-func (r *baseResourceReconciler) find(ctx context.Context, provider corev1.ObjectReference, resource string) (*corev1.ObjectReference, error) {
+func (r *baseResourceReconciler) find(ctx context.Context, provider corev1.ObjectReference,
+	resource string) (*corev1.ObjectReference, error) {
 	rcs := &xpcorev1alpha1.ResourceClassList{}
 	opts := &client.ListOptions{Namespace: provider.Namespace}
 	if err := r.client.List(ctx, opts, rcs); err != nil {
@@ -169,13 +168,14 @@ func (r *baseResourceReconciler) find(ctx context.Context, provider corev1.Objec
 func (r *baseResourceReconciler) newObjectMeta(nameSuffixes ...string) metav1.ObjectMeta {
 	return metav1.ObjectMeta{
 		Namespace:       r.GetNamespace(),
-		Name:            strings.Join(append(append([]string{}, r.GetName()), nameSuffixes...), objectMetaNameDelimiter),
+		Name:            strings.Join(append([]string{r.GetName()}, nameSuffixes...), "-"),
 		Labels:          map[string]string{"app": r.GetName()},
 		OwnerReferences: []metav1.OwnerReference{r.ToOwnerReference()},
 	}
 }
 
-func (r *baseResourceReconciler) loadHelmValues(ctx context.Context, dst chartutil.Values, fn helmValuesFunction, secretPrefix string) error {
+func (r *baseResourceReconciler) loadHelmValues(ctx context.Context, dst chartutil.Values, fn helmValuesFunction,
+	secretPrefix string) error {
 	if r.status == nil {
 		return errors.New(errorResourceStatusIsNotFound)
 	}
@@ -271,12 +271,14 @@ func (p *helmResourceProducer) produce(v chartutil.Values) ([]*unstructured.Unst
 }
 
 type applicationProducer interface {
-	produce(ctrl *v1alpha1.GitLab, resources []*unstructured.Unstructured, m application.SecretMap) *xpworkloadv1alpha1.KubernetesApplication
+	produce(ctrl *v1alpha1.GitLab, resources []*unstructured.Unstructured,
+		m application.SecretMap) *xpworkloadv1alpha1.KubernetesApplication
 }
 
 type helmApplicationProducer struct{}
 
-func (p *helmApplicationProducer) produce(ctrl *v1alpha1.GitLab, resources []*unstructured.Unstructured, m application.SecretMap) *xpworkloadv1alpha1.KubernetesApplication {
+func (p *helmApplicationProducer) produce(ctrl *v1alpha1.GitLab, resources []*unstructured.Unstructured,
+	m application.SecretMap) *xpworkloadv1alpha1.KubernetesApplication {
 	// TODO(negz): Provide a cluster selector?
 	// TODO(negz): Override template namespaces, if necessary?
 	return application.New(ctrl.GetName(), resources,
@@ -293,7 +295,8 @@ type applicationReconciler struct {
 	application applicationProducer
 }
 
-func (a *applicationReconciler) getHelmValues(ctx context.Context, rr []resourceReconciler, secretPrefix string) (chartutil.Values, error) {
+func (a *applicationReconciler) getHelmValues(ctx context.Context, rr []resourceReconciler,
+	secretPrefix string) (chartutil.Values, error) {
 	v := chartutil.Values{
 		valuesKeyGlobal: chartutil.Values{
 			valuesKeyMinio: chartutil.Values{"enabled": false},

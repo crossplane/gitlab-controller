@@ -86,15 +86,16 @@ func Test_convert(t *testing.T) {
 			},
 		},
 	}
+	testCaseName := "convert()"
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			got, err := convert(tt.args)
 			if diff := deep.Equal(err, tt.want.err); diff != nil {
-				t.Errorf("convert() error = %v, wantErr %v\n%s", err, tt.want.err, diff)
+				t.Errorf("%s error %s", testCaseName, diff)
 				return
 			}
 			if diff := cmp.Diff(got, tt.want.obj); diff != "" {
-				t.Errorf("convert() = %v, want %v\n%s", got, tt.want.obj, diff)
+				t.Errorf("%s %s", testCaseName, diff)
 			}
 		})
 	}

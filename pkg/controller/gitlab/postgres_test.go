@@ -40,6 +40,7 @@ var _ resourceReconciler = &postgresReconciler{}
 
 func Test_postgresReconciler_reconcile(t *testing.T) {
 	ctx := context.TODO()
+	testCaseName := "postgresReconciler.reconcile()"
 	testError := errors.New("test-error")
 	type fields struct {
 		base   *baseResourceReconciler
@@ -59,7 +60,8 @@ func Test_postgresReconciler_reconcile(t *testing.T) {
 					GitLab: newGitLabBuilder().build(),
 				},
 				finder: &mockResourceClassFinder{
-					mockFind: func(ctx context.Context, provider corev1.ObjectReference, resource string) (*corev1.ObjectReference, error) {
+					mockFind: func(ctx context.Context, provider corev1.ObjectReference,
+						resource string) (*corev1.ObjectReference, error) {
 						return nil, testError
 					},
 				},
@@ -81,12 +83,14 @@ func Test_postgresReconciler_reconcile(t *testing.T) {
 					},
 				},
 				finder: &mockResourceClassFinder{
-					mockFind: func(ctx context.Context, provider corev1.ObjectReference, resource string) (*corev1.ObjectReference, error) {
+					mockFind: func(ctx context.Context, provider corev1.ObjectReference,
+						resource string) (*corev1.ObjectReference, error) {
 						return nil, nil
 					},
 				},
 			},
-			want: want{err: errors.Wrapf(testError, errorFmtFailedToCreate, postgresqlClaimKind, testKey.String()+"-"+xpstoragev1alpha1.PostgreSQLInstanceKind)},
+			want: want{err: errors.Wrapf(testError, errorFmtFailedToCreate, postgresqlClaimKind,
+				testKey.String()+"-"+xpstoragev1alpha1.PostgreSQLInstanceKind)},
 		},
 		"FailToRetrieveObject-Other": {
 			fields: fields{
@@ -99,12 +103,14 @@ func Test_postgresReconciler_reconcile(t *testing.T) {
 					},
 				},
 				finder: &mockResourceClassFinder{
-					mockFind: func(ctx context.Context, provider corev1.ObjectReference, resource string) (*corev1.ObjectReference, error) {
+					mockFind: func(ctx context.Context, provider corev1.ObjectReference,
+						resource string) (*corev1.ObjectReference, error) {
 						return nil, nil
 					},
 				},
 			},
-			want: want{err: errors.Wrapf(testError, errorFmtFailedToRetrieveInstance, postgresqlClaimKind, testKey.String()+"-"+xpstoragev1alpha1.PostgreSQLInstanceKind)},
+			want: want{err: errors.Wrapf(testError, errorFmtFailedToRetrieveInstance, postgresqlClaimKind,
+				testKey.String()+"-"+xpstoragev1alpha1.PostgreSQLInstanceKind)},
 		},
 		"CreateSuccessful": {
 			fields: fields{
@@ -118,7 +124,8 @@ func Test_postgresReconciler_reconcile(t *testing.T) {
 					},
 				},
 				finder: &mockResourceClassFinder{
-					mockFind: func(ctx context.Context, provider corev1.ObjectReference, resource string) (*corev1.ObjectReference, error) {
+					mockFind: func(ctx context.Context, provider corev1.ObjectReference,
+						resource string) (*corev1.ObjectReference, error) {
 						return nil, nil
 					},
 				},
@@ -133,7 +140,7 @@ func Test_postgresReconciler_reconcile(t *testing.T) {
 						MockGet: func(ctx context.Context, key client.ObjectKey, obj runtime.Object) error {
 							psql, ok := obj.(*xpstoragev1alpha1.PostgreSQLInstance)
 							if !ok {
-								return errors.Errorf("postgresReconciler.reconcile() type: %T", obj)
+								return errors.Errorf("%s type: %T", testCaseName, obj)
 							}
 							psql.Status = *newResourceClaimStatusBuilder().withReadyStatus().build()
 							return nil
@@ -142,7 +149,8 @@ func Test_postgresReconciler_reconcile(t *testing.T) {
 					},
 				},
 				finder: &mockResourceClassFinder{
-					mockFind: func(ctx context.Context, provider corev1.ObjectReference, resource string) (*corev1.ObjectReference, error) {
+					mockFind: func(ctx context.Context, provider corev1.ObjectReference,
+						resource string) (*corev1.ObjectReference, error) {
 						return nil, nil
 					},
 				},
@@ -159,10 +167,10 @@ func Test_postgresReconciler_reconcile(t *testing.T) {
 				resourceClassFinder:    tt.fields.finder,
 			}
 			if diff := cmp.Diff(r.reconcile(ctx), tt.want.err, cmpErrors); diff != "" {
-				t.Errorf("postgresReconciler.reconcile() -got error, +want error: %s", diff)
+				t.Errorf("%s -got error, +want error: %s", testCaseName, diff)
 			}
 			if diff := cmp.Diff(r.status, tt.want.status, cmp.Comparer(test.EqualConditionedStatus)); diff != "" {
-				t.Errorf("postgresReconciler.reconcile() -got status, +want status: %s", diff)
+				t.Errorf("%s -got status, +want status: %s", testCaseName, diff)
 			}
 		})
 	}

@@ -76,7 +76,8 @@ type mockResourceClassFinder struct {
 	mockFind func(ctx context.Context, provider corev1.ObjectReference, resource string) (*corev1.ObjectReference, error)
 }
 
-func (m *mockResourceClassFinder) find(ctx context.Context, provider corev1.ObjectReference, resource string) (*corev1.ObjectReference, error) {
+func (m *mockResourceClassFinder) find(ctx context.Context, provider corev1.ObjectReference,
+	resource string) (*corev1.ObjectReference, error) {
 	return m.mockFind(ctx, provider, resource)
 }
 
@@ -213,8 +214,9 @@ func Test_baseResourceReconciler_isReady(t *testing.T) {
 			want:       true,
 		},
 		"Failed": {
-			reconciler: &baseResourceReconciler{status: newResourceClaimStatusBuilder().withFailedStatus("foo", "bar").build()},
-			want:       false,
+			reconciler: &baseResourceReconciler{status: newResourceClaimStatusBuilder().
+				withFailedStatus("foo", "bar").build()},
+			want: false,
 		},
 	}
 	for name, tt := range tests {
@@ -244,8 +246,9 @@ func Test_baseResourceReconciler_isFailed(t *testing.T) {
 			want:       false,
 		},
 		"Failed": {
-			reconciler: &baseResourceReconciler{status: newResourceClaimStatusBuilder().withFailedStatus("foo", "bar").build()},
-			want:       true,
+			reconciler: &baseResourceReconciler{status: newResourceClaimStatusBuilder().
+				withFailedStatus("foo", "bar").build()},
+			want: true,
 		},
 	}
 	for name, tt := range tests {
@@ -294,7 +297,8 @@ func Test_baseResourceReconciler_getClaimConnectionSecret(t *testing.T) {
 				},
 			},
 			want: want{
-				err: errors.Wrapf(testError, errorFmtFailedToRetrieveConnectionSecret, fmt.Sprintf("%s/%s", testNamespace, testSecretName)),
+				err: errors.Wrapf(testError, errorFmtFailedToRetrieveConnectionSecret, fmt.Sprintf("%s/%s",
+					testNamespace, testSecretName)),
 			},
 		},
 		"Successful": {
