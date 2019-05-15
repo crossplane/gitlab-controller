@@ -67,6 +67,15 @@ func WithReleaseName(name string) Option {
 	}
 }
 
+// WithReleaseNamespace configures the Helm release namespace used to render
+// resources.
+func WithReleaseNamespace(namespace string) Option {
+	return func(o *options) error {
+		o.namespace = namespace
+		return nil
+	}
+}
+
 // WithValues configures the Helm values used to render resources.
 func WithValues(v chartutil.Values) Option {
 	return func(o *options) error {
@@ -112,10 +121,13 @@ func Render(chartURL string, o ...Option) ([]*unstructured.Unstructured, error) 
 
 	ro := renderutil.Options{
 		ReleaseOptions: chartutil.ReleaseOptions{
-			// Namespace can be set here, but it seems to be ignored.
+			// Namespace can be set here, but is only used in cases where a
+			// template explicitly references {{ .Release.Namespace }} and will
+			// not affect the namespace in which resources are actually created.
 			// https://github.com/helm/helm/issues/3553
-			Name: opts.name,
-			Time: timeconv.Now(),
+			Namespace: opts.namespace,
+			Name:      opts.name,
+			Time:      timeconv.Now(),
 		},
 		KubeVersion: fmt.Sprintf("%s.%s", chartutil.DefaultKubeVersion.Major, chartutil.DefaultKubeVersion.Minor),
 	}

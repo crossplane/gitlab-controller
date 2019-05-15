@@ -28,6 +28,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/pkg/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/helm/pkg/chartutil"
 
@@ -35,7 +36,8 @@ import (
 )
 
 const (
-	name = "cool"
+	name      = "cool"
+	namespace = "coolns"
 
 	chartName = "simple"
 	chartDir  = "fixtures/" + chartName
@@ -105,14 +107,13 @@ func TestProduce(t *testing.T) {
 			name:     "IngressDisabled",
 			chartDir: chartDir,
 			// The ingress is disabled by default, so we omit values.
-			opts: []Option{WithReleaseName(name)},
 			want: want{
 				resources: []*unstructured.Unstructured{
 					{
 						Object: map[string]interface{}{
 							"apiVersion": "v1",
 							"kind":       "Service",
-							"metadata":   map[string]interface{}{"name": name + "-" + chartName},
+							"metadata":   map[string]interface{}{"name": chartName},
 							"spec": map[string]interface{}{
 								"ports": []interface{}{
 									map[string]interface{}{
@@ -123,7 +124,7 @@ func TestProduce(t *testing.T) {
 									},
 								},
 								"selector": map[string]interface{}{
-									"app.kubernetes.io/instance": name,
+									"app.kubernetes.io/instance": chartName,
 									"app.kubernetes.io/name":     chartName,
 								},
 								"type": "ClusterIP",
@@ -155,6 +156,77 @@ func TestProduce(t *testing.T) {
 								},
 								"selector": map[string]interface{}{
 									"app.kubernetes.io/instance": name,
+									"app.kubernetes.io/name":     chartName,
+								},
+								"type": "ClusterIP",
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			name:     "WithDefaultNamespace",
+			chartDir: chartDir,
+			opts:     []Option{WithValues(chartutil.Values{"setNamespace": true})},
+			want: want{
+				resources: []*unstructured.Unstructured{
+					{
+						Object: map[string]interface{}{
+							"apiVersion": "v1",
+							"kind":       "Service",
+							"metadata": map[string]interface{}{
+								"name":      chartName,
+								"namespace": metav1.NamespaceDefault,
+							},
+							"spec": map[string]interface{}{
+								"ports": []interface{}{
+									map[string]interface{}{
+										"name":       "http",
+										"port":       int64(80),
+										"protocol":   "TCP",
+										"targetPort": "http",
+									},
+								},
+								"selector": map[string]interface{}{
+									"app.kubernetes.io/instance": chartName,
+									"app.kubernetes.io/name":     chartName,
+								},
+								"type": "ClusterIP",
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			name:     "WithSpecifiedNamespace",
+			chartDir: chartDir,
+			opts: []Option{
+				WithValues(chartutil.Values{"setNamespace": true}),
+				WithReleaseNamespace(namespace),
+			},
+			want: want{
+				resources: []*unstructured.Unstructured{
+					{
+						Object: map[string]interface{}{
+							"apiVersion": "v1",
+							"kind":       "Service",
+							"metadata": map[string]interface{}{
+								"name":      chartName,
+								"namespace": namespace,
+							},
+							"spec": map[string]interface{}{
+								"ports": []interface{}{
+									map[string]interface{}{
+										"name":       "http",
+										"port":       int64(80),
+										"protocol":   "TCP",
+										"targetPort": "http",
+									},
+								},
+								"selector": map[string]interface{}{
+									"app.kubernetes.io/instance": chartName,
 									"app.kubernetes.io/name":     chartName,
 								},
 								"type": "ClusterIP",
