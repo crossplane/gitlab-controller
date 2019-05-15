@@ -29,12 +29,14 @@ import (
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/helm/pkg/chartutil"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/crossplaneio/gitlab-controller/pkg/apis/controller/v1alpha1"
 	"github.com/crossplaneio/gitlab-controller/pkg/test"
-	"github.com/crossplaneio/gitlab-controller/pkg/util"
 )
+
+var _ resourceReconciler = &redisReconciler{}
 
 func Test_redisReconciler_reconcile(t *testing.T) {
 	ctx := context.TODO()
@@ -84,7 +86,7 @@ func Test_redisReconciler_reconcile(t *testing.T) {
 					},
 				},
 			},
-			want: want{err: errors.Wrapf(testError, errorFmtFailedToCreate, redisClaimKind, testKey)},
+			want: want{err: errors.Wrapf(testError, errorFmtFailedToCreate, redisClaimKind, testKey.String()+"-"+xpcachev1alpha1.RedisClusterKind)},
 		},
 		"FailToRetrieveObject-Other": {
 			fields: fields{
@@ -102,7 +104,7 @@ func Test_redisReconciler_reconcile(t *testing.T) {
 					},
 				},
 			},
-			want: want{err: errors.Wrapf(testError, errorFmtFailedToRetrieveInstance, redisClaimKind, testKey)},
+			want: want{err: errors.Wrapf(testError, errorFmtFailedToRetrieveInstance, redisClaimKind, testKey.String()+"-"+xpcachev1alpha1.RedisClusterKind)},
 		},
 		"CreateSuccessful": {
 			fields: fields{
@@ -157,10 +159,10 @@ func Test_redisReconciler_reconcile(t *testing.T) {
 				resourceClassFinder:    tt.fields.finder,
 			}
 			if diff := cmp.Diff(r.reconcile(ctx), tt.want.err, cmpErrors); diff != "" {
-				t.Errorf("redisReconciler.reconcile() error %s", diff)
+				t.Errorf("redisReconciler.reconcile() -got error, +want error: %s", diff)
 			}
-			if diff := cmp.Diff(r.status, tt.want.status, cmp.Comparer(util.EqualConditionedStatus)); diff != "" {
-				t.Errorf("redisReconciler.reconcile() status %s", diff)
+			if diff := cmp.Diff(r.status, tt.want.status, cmp.Comparer(test.EqualConditionedStatus)); diff != "" {
+				t.Errorf("redisReconciler.reconcile() -got status, +want status: %s", diff)
 			}
 		})
 	}
@@ -184,20 +186,25 @@ func Test_newRedisReconciler(t *testing.T) {
 }
 
 func Test_redisReconciler_getHelmValues(t *testing.T) {
-	ctx := context.TODO()
 	type fields struct {
 		baseResourceReconciler *baseResourceReconciler
 		resourceClassFinder    resourceClassFinder
 	}
+	type args struct {
+		ctx          context.Context
+		values       chartutil.Values
+		secretPrefix string
+	}
 	tests := map[string]struct {
 		fields fields
-		args   map[string]string
+		args   args
 		want   error
 	}{
 		"Failure": {
 			fields: fields{
-				baseResourceReconciler: newBaseResourceReconciler(newGitLabBuilder().build(), test.NewMockClient(), helmRedisComponentName),
+				baseResourceReconciler: newBaseResourceReconciler(newGitLabBuilder().build(), test.NewMockClient(), redisClaimKind),
 			},
+			args: args{ctx: context.TODO()},
 			want: errors.New(errorResourceStatusIsNotFound),
 		},
 	}
@@ -207,7 +214,7 @@ func Test_redisReconciler_getHelmValues(t *testing.T) {
 				baseResourceReconciler: tt.fields.baseResourceReconciler,
 				resourceClassFinder:    tt.fields.resourceClassFinder,
 			}
-			if diff := cmp.Diff(r.getHelmValues(ctx, tt.args), tt.want, cmpErrors); diff != "" {
+			if diff := cmp.Diff(r.getHelmValues(tt.args.ctx, tt.args.values, tt.args.secretPrefix), tt.want, cmpErrors); diff != "" {
 				t.Errorf("redisReconciler.getHelmValues() error %s", diff)
 			}
 		})
@@ -215,64 +222,45 @@ func Test_redisReconciler_getHelmValues(t *testing.T) {
 }
 
 func Test_redisHelmValues(t *testing.T) {
+	endpoint := "http://example.org"
+
 	type args struct {
-		values map[string]string
-		name   string
-		secret *corev1.Secret
+		values       chartutil.Values
+		secret       *corev1.Secret
+		name         string
+		secretPrefix string
 	}
 	type want struct {
-		panic bool
-		data  map[string]string
+		values chartutil.Values
 	}
 	tests := map[string]struct {
 		args args
 		want want
 	}{
-		"Failure": {
-			args: args{},
-			want: want{panic: true},
-		},
-		"Success-NoValue": {
+		"EmptyValues": {
 			args: args{
-				values: make(map[string]string),
-				name:   "foo",
-				secret: &corev1.Secret{Data: map[string][]byte{}},
+				values: chartutil.Values{},
+				secret: &corev1.Secret{Data: map[string][]byte{
+					xpcorev1alpha1.ResourceCredentialsSecretEndpointKey: []byte(endpoint),
+				}},
 			},
 			want: want{
-				data: map[string]string{
-					helmValueRedisHostKey: "",
-					helmRedisEnabled:      "false",
-				},
-			},
-		},
-		"Success-WithValue": {
-			args: args{
-				values: make(map[string]string),
-				name:   "foo",
-				secret: &corev1.Secret{
-					Data: map[string][]byte{
-						xpcorev1alpha1.ResourceCredentialsSecretEndpointKey: []byte("bar"),
+				values: chartutil.Values{
+					valuesKeyGlobal: chartutil.Values{
+						valuesKeyRedis: chartutil.Values{
+							"host":     "http://example.org",
+							"password": chartutil.Values{"enabled": false},
+						},
 					},
-				},
-			},
-			want: want{
-				data: map[string]string{
-					helmValueRedisHostKey: "bar",
-					helmRedisEnabled:      "false",
 				},
 			},
 		},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			defer func() {
-				if r := recover(); r != nil && !tt.want.panic {
-					t.Errorf("redisHelmValues() panic: %v", r)
-				}
-			}()
-			redisHelmValues(tt.args.values, tt.args.name, tt.args.secret)
-			if diff := cmp.Diff(tt.args.values, tt.want.data); diff != "" {
-				t.Errorf("redisHelmValues() %s", diff)
+			redisHelmValues(tt.args.values, tt.args.secret, tt.args.name, tt.args.secretPrefix)
+			if diff := cmp.Diff(tt.want.values, tt.args.values); diff != "" {
+				t.Errorf("redisHelmValues() -want values, +got values: %s", diff)
 			}
 		})
 	}

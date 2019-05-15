@@ -22,21 +22,32 @@ import (
 	"testing"
 
 	xpcorev1alpha1 "github.com/crossplaneio/crossplane/pkg/apis/core/v1alpha1"
+	xpworkloadv1alpha1 "github.com/crossplaneio/crossplane/pkg/apis/workload/v1alpha1"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/helm/pkg/chartutil"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/crossplaneio/gitlab-controller/pkg/apis/controller/v1alpha1"
+	"github.com/crossplaneio/gitlab-controller/pkg/controller/gitlab/application"
 	"github.com/crossplaneio/gitlab-controller/pkg/test"
-	"github.com/crossplaneio/gitlab-controller/pkg/util"
 )
+
+var _ componentsReconciler = &applicationReconciler{}
+
+const testResource = "test-resource"
+
+func newMockHelmValuesFn(err error) helmValuesFunction {
+	return func(_ chartutil.Values, _ *corev1.Secret, _, _ string) error { return err }
+}
 
 // mockGitLabReconcilerMill
 type mockGitLabReconcilerMill struct {
@@ -84,12 +95,13 @@ var _ componentsReconciler = &mockComponentsReconciler{}
 
 // mockResourceReconciler
 type mockResourceReconciler struct {
-	mockReconcile                func(context.Context) error
-	mockIsReady                  func() bool
-	mockIsFailed                 func() bool
-	mockGetClaimKind             func() string
-	mockGetClaimConnectionSecret func(context.Context) (*corev1.Secret, error)
-	mockGetHelmValues            func(context.Context, map[string]string) error
+	mockReconcile                    func(context.Context) error
+	mockIsReady                      func() bool
+	mockIsFailed                     func() bool
+	mockGetClaimKind                 func() string
+	mockGetClaimConnectionSecretName func() string
+	mockGetClaimConnectionSecret     func(context.Context) (*corev1.Secret, error)
+	mockGetHelmValues                func(context.Context, chartutil.Values, string) error
 }
 
 func (m *mockResourceReconciler) reconcile(ctx context.Context) error {
@@ -104,11 +116,14 @@ func (m *mockResourceReconciler) isFailed() bool {
 func (m *mockResourceReconciler) getClaimKind() string {
 	return m.mockGetClaimKind()
 }
+func (m *mockResourceReconciler) getClaimConnectionSecretName() string {
+	return m.mockGetClaimConnectionSecretName()
+}
 func (m *mockResourceReconciler) getClaimConnectionSecret(ctx context.Context) (*corev1.Secret, error) {
 	return m.mockGetClaimConnectionSecret(ctx)
 }
-func (m *mockResourceReconciler) getHelmValues(ctx context.Context, values map[string]string) error {
-	return m.mockGetHelmValues(ctx, values)
+func (m *mockResourceReconciler) getHelmValues(ctx context.Context, v chartutil.Values, secretPrefix string) error {
+	return m.mockGetHelmValues(ctx, v, secretPrefix)
 }
 
 var _ resourceReconciler = &mockResourceReconciler{}
@@ -318,7 +333,6 @@ func Test_baseResourceReconciler_getClaimConnectionSecret(t *testing.T) {
 
 func Test_baseResourceReconciler_findResourceClass(t *testing.T) {
 	ctx := context.TODO()
-	testProvisioner := "test-resource"
 	testProviderName := "test-provider"
 	testError := errors.New("test-error")
 
@@ -364,10 +378,10 @@ func Test_baseResourceReconciler_findResourceClass(t *testing.T) {
 			},
 			args: args{
 				provider: newProviderRef(testNamespace, testProviderName),
-				resource: testProvisioner,
+				resource: testResource,
 			},
 			want: want{
-				err: errors.Wrapf(testError, errorFmtFailedToListResourceClasses, testNamespace, testProviderName, testProvisioner),
+				err: errors.Wrapf(testError, errorFmtFailedToListResourceClasses, testNamespace, testProviderName, testResource),
 			},
 		},
 		"EmptyProvidersList": {
@@ -380,10 +394,10 @@ func Test_baseResourceReconciler_findResourceClass(t *testing.T) {
 			},
 			args: args{
 				provider: newProviderRef(testNamespace, testProviderName),
-				resource: testProvisioner,
+				resource: testResource,
 			},
 			want: want{
-				err: errors.Errorf(errorFmtResourceClassNotFound, testNamespace, testProviderName, testProvisioner),
+				err: errors.Errorf(errorFmtResourceClassNotFound, testNamespace, testProviderName, testResource),
 			},
 		},
 		"NoMatchingProviders-DifferentNamespace": {
@@ -408,10 +422,10 @@ func Test_baseResourceReconciler_findResourceClass(t *testing.T) {
 			},
 			args: args{
 				provider: newProviderRef(testNamespace, testProviderName),
-				resource: testProvisioner,
+				resource: testResource,
 			},
 			want: want{
-				err: errors.Errorf(errorFmtResourceClassNotFound, testNamespace, testProviderName, testProvisioner),
+				err: errors.Errorf(errorFmtResourceClassNotFound, testNamespace, testProviderName, testResource),
 			},
 		},
 		"NoMatchingProviders-SameNamespace": {
@@ -437,10 +451,10 @@ func Test_baseResourceReconciler_findResourceClass(t *testing.T) {
 			},
 			args: args{
 				provider: newProviderRef(testNamespace, testProviderName),
-				resource: testProvisioner,
+				resource: testResource,
 			},
 			want: want{
-				err: errors.Errorf(errorFmtResourceClassNotFound, testNamespace, testProviderName, testProvisioner),
+				err: errors.Errorf(errorFmtResourceClassNotFound, testNamespace, testProviderName, testResource),
 			},
 		},
 		"MatchingProvider-NotMatchingResource": {
@@ -466,10 +480,10 @@ func Test_baseResourceReconciler_findResourceClass(t *testing.T) {
 			},
 			args: args{
 				provider: newProviderRef(testNamespace, testProviderName),
-				resource: testProvisioner,
+				resource: testResource,
 			},
 			want: want{
-				err: errors.Errorf(errorFmtResourceClassNotFound, testNamespace, testProviderName, testProvisioner),
+				err: errors.Errorf(errorFmtResourceClassNotFound, testNamespace, testProviderName, testResource),
 			},
 		},
 		"MatchingProvider-MatchingResource-Single": {
@@ -483,7 +497,7 @@ func Test_baseResourceReconciler_findResourceClass(t *testing.T) {
 										Namespace: testNamespace,
 										Name:      "thingOne",
 										Annotations: map[string]string{
-											resourceAnnotationKey: testProvisioner,
+											resourceAnnotationKey: testResource,
 										},
 									},
 									ProviderRef: corev1.LocalObjectReference{Name: testProviderName},
@@ -498,7 +512,7 @@ func Test_baseResourceReconciler_findResourceClass(t *testing.T) {
 			},
 			args: args{
 				provider: newProviderRef(testNamespace, testProviderName),
-				resource: testProvisioner,
+				resource: testResource,
 			},
 			want: want{
 				ref: &corev1.ObjectReference{
@@ -518,7 +532,7 @@ func Test_baseResourceReconciler_findResourceClass(t *testing.T) {
 										Namespace: testNamespace,
 										Name:      "thingOne",
 										Annotations: map[string]string{
-											resourceAnnotationKey: testProvisioner,
+											resourceAnnotationKey: testResource,
 										},
 									},
 									ProviderRef: corev1.LocalObjectReference{Name: testProviderName},
@@ -528,7 +542,7 @@ func Test_baseResourceReconciler_findResourceClass(t *testing.T) {
 										Namespace: testNamespace,
 										Name:      "thingTwo",
 										Annotations: map[string]string{
-											resourceAnnotationKey: testProvisioner,
+											resourceAnnotationKey: testResource,
 										},
 									},
 									ProviderRef: corev1.LocalObjectReference{Name: testProviderName},
@@ -543,7 +557,7 @@ func Test_baseResourceReconciler_findResourceClass(t *testing.T) {
 			},
 			args: args{
 				provider: newProviderRef(testNamespace, testProviderName),
-				resource: testProvisioner,
+				resource: testResource,
 			},
 			want: want{
 				ref: &corev1.ObjectReference{
@@ -619,45 +633,20 @@ func Test_baseResourceReconciler_newObjectMeta(t *testing.T) {
 	}
 }
 
-func Test_baseResourceReconciler_newNamespacedName(t *testing.T) {
-	tests := map[string]struct {
-		fields *v1alpha1.GitLab
-		want   types.NamespacedName
-	}{
-		"Default": {
-			fields: &v1alpha1.GitLab{},
-			want:   types.NamespacedName{},
-		},
-		"WithValues": {
-			fields: &v1alpha1.GitLab{ObjectMeta: testMeta},
-			want:   types.NamespacedName{Namespace: testNamespace, Name: testName},
-		},
-	}
-	for name, tt := range tests {
-		t.Run(name, func(t *testing.T) {
-			r := &baseResourceReconciler{
-				GitLab: tt.fields,
-			}
-			got := r.newNamespacedName()
-			if diff := cmp.Diff(got, tt.want); diff != "" {
-				t.Errorf("base.newNamespacedName() %s", diff)
-			}
-		})
-	}
-}
-
 func Test_baseResourceReconciler_loadHelmValues(t *testing.T) {
-	ctx := context.TODO()
 	testError := errors.New("test-error")
 	testSecretKey := types.NamespacedName{Namespace: testNamespace, Name: "test-secret"}
+
 	type fields struct {
 		GitLab *v1alpha1.GitLab
 		client client.Client
 		status *xpcorev1alpha1.ResourceClaimStatus
 	}
 	type args struct {
-		values   map[string]string
-		function helmValuesFunction
+		ctx          context.Context
+		values       chartutil.Values
+		function     helmValuesFunction
+		secretPrefix string
 	}
 	tests := map[string]struct {
 		fields fields
@@ -668,7 +657,9 @@ func Test_baseResourceReconciler_loadHelmValues(t *testing.T) {
 			fields: fields{
 				GitLab: newGitLabBuilder().build(),
 			},
-			args: args{},
+			args: args{
+				ctx: context.TODO(),
+			},
 			want: errors.New(errorResourceStatusIsNotFound),
 		},
 		"FailureRetrievingConnectionSecret": {
@@ -683,7 +674,9 @@ func Test_baseResourceReconciler_loadHelmValues(t *testing.T) {
 					CredentialsSecretRef: corev1.LocalObjectReference{Name: testSecretKey.Name},
 				},
 			},
-			args: args{},
+			args: args{
+				ctx: context.TODO(),
+			},
 			want: errors.Wrapf(testError, errorFmtFailedToRetrieveConnectionSecret, testSecretKey),
 		},
 		"Successful": {
@@ -705,7 +698,8 @@ func Test_baseResourceReconciler_loadHelmValues(t *testing.T) {
 				},
 			},
 			args: args{
-				function: func(strings map[string]string, s string, secret *corev1.Secret) {},
+				ctx:      context.TODO(),
+				function: newMockHelmValuesFn(nil),
 			},
 		},
 	}
@@ -713,7 +707,7 @@ func Test_baseResourceReconciler_loadHelmValues(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			r := newBaseResourceReconciler(tt.fields.GitLab, tt.fields.client, "foo")
 			r.status = tt.fields.status
-			if diff := cmp.Diff(r.loadHelmValues(ctx, tt.args.values, tt.args.function), tt.want, cmpErrors); diff != "" {
+			if diff := cmp.Diff(r.loadHelmValues(tt.args.ctx, tt.args.values, tt.args.function, tt.args.secretPrefix), tt.want, cmpErrors); diff != "" {
 				t.Errorf("baseResourceReconciler.loadHelmValues() error %s", diff)
 			}
 		})
@@ -805,7 +799,7 @@ func Test_handler_fail(t *testing.T) {
 				t.Errorf("gitLabReconciler.fail() error %s", diff)
 			}
 			if diff := cmp.Diff(&r.GitLab.Status.ConditionedStatus, tt.want.cds,
-				cmp.Comparer(util.EqualConditionedStatus)); diff != "" {
+				cmp.Comparer(test.EqualConditionedStatus)); diff != "" {
 				t.Errorf("gitLabReconciler.fail() conditions %s", diff)
 			}
 		})
@@ -884,7 +878,7 @@ func Test_handler_pending(t *testing.T) {
 				t.Errorf("gitLabReconciler.pending() error %s", diff)
 			}
 			if diff := cmp.Diff(r.GitLab.Status.Conditions, tt.want.cds,
-				cmp.Comparer(util.EqualConditionedStatus)); diff != "" {
+				cmp.Comparer(test.EqualConditionedStatus)); diff != "" {
 				t.Errorf("gitLabReconciler.pending() conditions %s", diff)
 			}
 		})
@@ -1045,18 +1039,40 @@ func Test_resourceClaimsReconciler_reconcile(t *testing.T) {
 	}
 }
 
+type mockResourceProducer struct {
+	resources []*unstructured.Unstructured
+	err       error
+}
+
+func (p *mockResourceProducer) produce(_ chartutil.Values) ([]*unstructured.Unstructured, error) {
+	return p.resources, p.err
+}
+
+type mockApplicationProducer struct {
+	app *xpworkloadv1alpha1.KubernetesApplication
+}
+
+func (p *mockApplicationProducer) produce(_ *v1alpha1.GitLab, _ []*unstructured.Unstructured, _ application.SecretMap) *xpworkloadv1alpha1.KubernetesApplication {
+	return p.app
+}
+
 func Test_applicationReconciler_reconcile(t *testing.T) {
-	ctx := context.TODO()
 	testError := errors.New("test-error")
+	ctrl := &v1alpha1.GitLab{ObjectMeta: metav1.ObjectMeta{UID: types.UID("coolUID")}}
+	ref := metav1.NewControllerRef(ctrl, v1alpha1.GitLabGroupVersionKind)
+
 	type fields struct {
-		handle *handle
+		handle      *handle
+		resources   resourceProducer
+		application applicationProducer
 	}
 	type args struct {
+		ctx       context.Context
 		resources []resourceReconciler
 	}
 	type want struct {
-		res reconcile.Result
-		err error
+		result reconcile.Result
+		err    error
 	}
 	tests := map[string]struct {
 		fields fields
@@ -1071,10 +1087,10 @@ func Test_applicationReconciler_reconcile(t *testing.T) {
 						MockStatusUpdate: func(ctx context.Context, obj runtime.Object) error {
 							gl, ok := obj.(*v1alpha1.GitLab)
 							if !ok {
-								t.Errorf("applicationReconciler.reconcile() unxpected type %T", obj)
+								t.Errorf("applicationReconciler.reconcile() unexpected type %T", obj)
 							}
 							if gl.Status.State != xpcorev1alpha1.Failed {
-								t.Errorf("applicationReconciler.reconcile() unxpected statu.state %s", gl.Status.State)
+								t.Errorf("applicationReconciler.reconcile() unexpected status.state %s", gl.Status.State)
 							}
 							return nil
 						},
@@ -1082,15 +1098,93 @@ func Test_applicationReconciler_reconcile(t *testing.T) {
 				},
 			},
 			args: args{
+				ctx: context.TODO(),
 				resources: []resourceReconciler{
 					&mockResourceReconciler{
-						mockGetClaimKind:  func() string { return "test-resource" },
-						mockIsReady:       func() bool { return true },
-						mockGetHelmValues: func(ctx context.Context, vals map[string]string) error { return testError },
+						mockGetClaimKind:                 func() string { return testResource },
+						mockIsReady:                      func() bool { return true },
+						mockGetClaimConnectionSecretName: func() string { return "coolsecret" },
+						mockGetHelmValues:                func(context.Context, chartutil.Values, string) error { return testError },
 					},
 				},
 			},
-			want: want{res: reconcileFailure},
+			want: want{result: reconcileFailure},
+		},
+		"ProduceResourcesFailure": {
+			fields: fields{
+				handle: &handle{
+					GitLab: newGitLabBuilder().build(),
+					client: &test.MockClient{
+						MockStatusUpdate: func(ctx context.Context, obj runtime.Object) error {
+							gl, ok := obj.(*v1alpha1.GitLab)
+							if !ok {
+								t.Errorf("applicationReconciler.reconcile() unexpected type %T", obj)
+							}
+							if gl.Status.State != xpcorev1alpha1.Failed {
+								t.Errorf("applicationReconciler.reconcile() unexpected status.state %s", gl.Status.State)
+							}
+							return nil
+						},
+					},
+				},
+				resources: &mockResourceProducer{err: testError},
+			},
+			args: args{
+				ctx: context.TODO(),
+				resources: []resourceReconciler{
+					&mockResourceReconciler{
+						mockGetClaimKind:                 func() string { return testResource },
+						mockIsReady:                      func() bool { return true },
+						mockGetClaimConnectionSecretName: func() string { return "coolsecret" },
+						mockGetHelmValues:                func(context.Context, chartutil.Values, string) error { return nil },
+					},
+				},
+			},
+			want: want{result: reconcileFailure},
+		},
+		"CreateOrUpdateAppFailure": {
+			fields: fields{
+				handle: &handle{
+					GitLab: newGitLabBuilder().build(),
+					client: &test.MockClient{
+						MockGet: func(ctx context.Context, key client.ObjectKey, obj runtime.Object) error {
+							evil := &v1alpha1.GitLab{ObjectMeta: metav1.ObjectMeta{UID: types.UID("evilUID")}}
+							ref := metav1.NewControllerRef(evil, v1alpha1.GitLabGroupVersionKind)
+							*obj.(*xpworkloadv1alpha1.KubernetesApplication) = xpworkloadv1alpha1.KubernetesApplication{
+								ObjectMeta: metav1.ObjectMeta{OwnerReferences: []metav1.OwnerReference{*ref}},
+							}
+
+							return nil
+						},
+						MockStatusUpdate: func(ctx context.Context, obj runtime.Object) error {
+							gl, ok := obj.(*v1alpha1.GitLab)
+							if !ok {
+								t.Errorf("applicationReconciler.reconcile() unxpected type %T", obj)
+							}
+							if gl.Status.State != xpcorev1alpha1.Failed {
+								t.Errorf("applicationReconciler.reconcile() unxpected status.state %s", gl.Status.State)
+							}
+							return nil
+						},
+					},
+				},
+				resources: &mockResourceProducer{},
+				application: &mockApplicationProducer{app: &xpworkloadv1alpha1.KubernetesApplication{
+					ObjectMeta: metav1.ObjectMeta{OwnerReferences: []metav1.OwnerReference{*ref}},
+				}},
+			},
+			args: args{
+				ctx: context.TODO(),
+				resources: []resourceReconciler{
+					&mockResourceReconciler{
+						mockGetClaimKind:                 func() string { return testResource },
+						mockIsReady:                      func() bool { return true },
+						mockGetClaimConnectionSecretName: func() string { return "coolsecret" },
+						mockGetHelmValues:                func(context.Context, chartutil.Values, string) error { return nil },
+					},
+				},
+			},
+			want: want{result: reconcileFailure},
 		},
 		"Successful": {
 			fields: fields{
@@ -1098,31 +1192,39 @@ func Test_applicationReconciler_reconcile(t *testing.T) {
 					GitLab: newGitLabBuilder().build(),
 					client: test.NewMockClient(),
 				},
+				resources: &mockResourceProducer{},
+				application: &mockApplicationProducer{app: &xpworkloadv1alpha1.KubernetesApplication{
+					ObjectMeta: metav1.ObjectMeta{OwnerReferences: []metav1.OwnerReference{*ref}},
+				}},
 			},
 			args: args{
+				ctx: context.TODO(),
 				resources: []resourceReconciler{
 					&mockResourceReconciler{
-						mockGetClaimKind:  func() string { return "test-resource" },
-						mockIsReady:       func() bool { return true },
-						mockGetHelmValues: func(ctx context.Context, vals map[string]string) error { return nil },
+						mockGetClaimKind:                 func() string { return testResource },
+						mockIsReady:                      func() bool { return true },
+						mockGetClaimConnectionSecretName: func() string { return "coolsecret" },
+						mockGetHelmValues:                func(context.Context, chartutil.Values, string) error { return nil },
 					},
 				},
 			},
-			want: want{res: reconcileSuccess},
+			want: want{result: reconcileSuccess},
 		},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			a := &applicationReconciler{
-				handle: tt.fields.handle,
+				handle:      tt.fields.handle,
+				resources:   tt.fields.resources,
+				application: tt.fields.application,
 			}
-			got, err := a.reconcile(ctx, tt.args.resources)
-			if diff := cmp.Diff(err, tt.want.err, cmpErrors); diff != "" {
-				t.Errorf("applicationReconciler.reconcile() error %s", diff)
+			result, err := a.reconcile(tt.args.ctx, tt.args.resources)
+			if diff := cmp.Diff(tt.want.err, err, cmpErrors); diff != "" {
+				t.Errorf("applicationReconciler.reconcile(): -want error, +got error: %s", diff)
 				return
 			}
-			if diff := cmp.Diff(got, tt.want.res); diff != "" {
-				t.Errorf("applicationReconciler.reconcile() %s", diff)
+			if diff := cmp.Diff(tt.want.result, result); diff != "" {
+				t.Errorf("applicationReconciler.reconcile(): -want result, +got result: %s", diff)
 			}
 		})
 	}
@@ -1251,4 +1353,121 @@ func Test_newGitLabReconciler(t *testing.T) {
 			newGitLabReconciler(tt.args.gitlab, tt.args.client)
 		})
 	}
+}
+
+func TestHasSameController(t *testing.T) {
+	ctrl := &v1alpha1.GitLab{ObjectMeta: metav1.ObjectMeta{Name: "coolController"}}
+	ref := metav1.NewControllerRef(ctrl, v1alpha1.GitLabGroupVersionKind)
+
+	cases := []struct {
+		name string
+		a    metav1.Object
+		b    metav1.Object
+		want bool
+	}{
+		{
+			name: "SameController",
+			a: &v1alpha1.GitLab{
+				ObjectMeta: metav1.ObjectMeta{
+					OwnerReferences: []metav1.OwnerReference{*ref},
+				},
+			},
+			b: &v1alpha1.GitLab{
+				ObjectMeta: metav1.ObjectMeta{
+					OwnerReferences: []metav1.OwnerReference{*ref},
+				},
+			},
+			want: true,
+		},
+		{
+			name: "AHasNoController",
+			a:    &v1alpha1.GitLab{},
+			b: &v1alpha1.GitLab{
+				ObjectMeta: metav1.ObjectMeta{
+					OwnerReferences: []metav1.OwnerReference{*ref},
+				},
+			},
+			want: false,
+		},
+		{
+			name: "BHasNoController",
+			a: &v1alpha1.GitLab{
+				ObjectMeta: metav1.ObjectMeta{
+					OwnerReferences: []metav1.OwnerReference{*ref},
+				},
+			},
+			b:    &v1alpha1.GitLab{},
+			want: false,
+		},
+		{
+			name: "ControllersDiffer",
+			a: &v1alpha1.GitLab{
+				ObjectMeta: metav1.ObjectMeta{
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							Controller: func() *bool {
+								t := true
+								return &t
+							}(),
+							UID: "imdifferent",
+						},
+					},
+				},
+			},
+			b: &v1alpha1.GitLab{
+				ObjectMeta: metav1.ObjectMeta{
+					OwnerReferences: []metav1.OwnerReference{*ref},
+				},
+			},
+			want: false,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := hasSameController(tc.a, tc.b)
+
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("hasSameController(...): -want, +got: %s", diff)
+			}
+		})
+	}
+}
+
+func TestGetControllerName(t *testing.T) {
+	name := "coolController"
+	ctrl := &v1alpha1.GitLab{ObjectMeta: metav1.ObjectMeta{Name: name}}
+	ref := metav1.NewControllerRef(ctrl, v1alpha1.GitLabGroupVersionKind)
+
+	cases := []struct {
+		name string
+		obj  metav1.Object
+		want string
+	}{
+		{
+			name: "HasController",
+			obj: &v1alpha1.GitLab{
+				ObjectMeta: metav1.ObjectMeta{
+					OwnerReferences: []metav1.OwnerReference{*ref},
+				},
+			},
+			want: name,
+		},
+		{
+			name: "HasNoController",
+			obj:  &v1alpha1.GitLab{},
+			want: "",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := getControllerName(tc.obj)
+
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("getControllerName(...): -want, +got: %s", diff)
+			}
+		})
+	}
+
 }

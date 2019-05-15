@@ -24,13 +24,17 @@ import (
 	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/helm/pkg/chartutil"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/crossplaneio/gitlab-controller/pkg/apis/controller/v1alpha1"
+	"github.com/crossplaneio/gitlab-controller/pkg/controller/gitlab/values"
 )
 
 const (
-	postgresqlClaimKind = "postgresql"
+	postgresqlClaimKind     = "postgresql"
+	defaultPostgresDatabase = "postgres"
 )
 
 // postgresReconciler
@@ -45,14 +49,15 @@ func (r *postgresReconciler) reconcile(ctx context.Context) error {
 		return errors.Wrapf(err, errorFmtFailedToFindResourceClass, r.getClaimKind(), r.GetProviderRef())
 	}
 
+	// TODO(negz): Set connection secret override to something unique.
 	pg := &xpstoragev1alpha1.PostgreSQLInstance{
-		ObjectMeta: r.newObjectMeta(),
+		ObjectMeta: r.newObjectMeta(xpstoragev1alpha1.PostgreSQLInstanceKind),
 		Spec: xpstoragev1alpha1.PostgreSQLInstanceSpec{
 			ClassRef:      ref,
 			EngineVersion: postgresEngineVersion,
 		},
 	}
-	key := r.newNamespacedName()
+	key := types.NamespacedName{Namespace: pg.GetNamespace(), Name: pg.GetName()}
 
 	if err := r.client.Get(ctx, key, pg); err != nil {
 		if kerrors.IsNotFound(err) {
@@ -69,29 +74,28 @@ func (r *postgresReconciler) getClaimKind() string {
 	return postgresqlClaimKind
 }
 
-func (r *postgresReconciler) getHelmValues(ctx context.Context, values map[string]string) error {
-	return r.loadHelmValues(ctx, values, postgresHelmValues)
+func (r *postgresReconciler) getHelmValues(ctx context.Context, dst chartutil.Values, secretPrefix string) error {
+	return r.loadHelmValues(ctx, dst, postgresHelmValues, secretPrefix)
 }
 
-const (
-	helmPostgresComponentName = "psql"
-	helmValuePsqlHostKey      = "global." + helmPostgresComponentName + "psql.host"
-	helmValuePsqlDatabaseKey  = "global." + helmPostgresComponentName + ".database"
-	helmValuePsqlUsernameKey  = "global." + helmPostgresComponentName + ".username"
-	helmPostgresqlInstall     = "postgresql.install"
-)
-
-func postgresHelmValues(values map[string]string, _ string, secret *corev1.Secret) {
-	values[helmValuePsqlHostKey] = string(secret.Data[xpcorev1alpha1.ResourceCredentialsSecretEndpointKey])
-	values[helmValuePsqlUsernameKey] = string(secret.Data[xpcorev1alpha1.ResourceCredentialsSecretUserKey])
-	values[helmValuePsqlDatabaseKey] = "postgres"
-	values[helmPostgresqlInstall] = "false"
+func postgresHelmValues(dst chartutil.Values, s *corev1.Secret, _, secretPrefix string) error {
+	return values.Merge(dst, chartutil.Values{
+		valuesKeyGlobal: chartutil.Values{
+			valuesKeyPSQL: chartutil.Values{
+				"host":     string(s.Data[xpcorev1alpha1.ResourceCredentialsSecretEndpointKey]),
+				"username": string(s.Data[xpcorev1alpha1.ResourceCredentialsSecretUserKey]),
+				"database": defaultPostgresDatabase,
+				"password": chartutil.Values{
+					"secret": secretPrefix + s.GetName(),
+					"key":    xpcorev1alpha1.ResourceCredentialsSecretPasswordKey,
+				},
+			},
+		},
+	})
 }
-
-var _ resourceReconciler = &postgresReconciler{}
 
 func newPostgresReconciler(gitlab *v1alpha1.GitLab, client client.Client) *postgresReconciler {
-	base := newBaseResourceReconciler(gitlab, client, helmPostgresComponentName)
+	base := newBaseResourceReconciler(gitlab, client, postgresqlClaimKind)
 	return &postgresReconciler{
 		baseResourceReconciler: base,
 		resourceClassFinder:    base,

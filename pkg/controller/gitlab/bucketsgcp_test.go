@@ -43,6 +43,10 @@ func Test_gcpSecretConnectionCreator_create(t *testing.T) {
 			args: make(map[string][]byte),
 			want: want{err: errors.New(errorMsgEmptyConnectionSecret)},
 		},
+		"MissingToken": {
+			args: map[string][]byte{"notatoken": []byte("nope")},
+			want: want{err: errors.Errorf(errorFmtEmptyToken, xpcorev1alpha1.ResourceCredentialsTokenKey)},
+		},
 		"InvalidCreds": {
 			args: map[string][]byte{
 				xpcorev1alpha1.ResourceCredentialsTokenKey: []byte("foo-bar"),

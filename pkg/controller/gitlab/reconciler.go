@@ -18,18 +18,25 @@ package gitlab
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
 	xpcorev1alpha1 "github.com/crossplaneio/crossplane/pkg/apis/core/v1alpha1"
+	xpworkloadv1alpha1 "github.com/crossplaneio/crossplane/pkg/apis/workload/v1alpha1"
 	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/helm/pkg/chartutil"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/crossplaneio/gitlab-controller/pkg/apis/controller/v1alpha1"
+	"github.com/crossplaneio/gitlab-controller/pkg/controller/gitlab/application"
+	"github.com/crossplaneio/gitlab-controller/pkg/controller/gitlab/resource/helm"
+	"github.com/crossplaneio/gitlab-controller/pkg/crud"
 	"github.com/crossplaneio/gitlab-controller/pkg/logging"
 )
 
@@ -51,13 +58,29 @@ const (
 	errorFmtFailedToFindResourceClass          = "failed to find %s resource class: %+v"
 	errorFmtFailedToRetrieveInstance           = "failed to retrieve %s instance: %s"
 	errorFmtFailedToCreate                     = "failed to create %s: %s"
+	errorFmtFailedToMergeHelmValues            = "failed to produce Helm values for %s"
 
+	errorFailedToRenderHelmChart  = "failed to render Helm chart"
 	errorResourceStatusIsNotFound = "resource status is not found"
 
 	reasonResourceProcessingFailure  = "fail to process resource"
 	reasonHasFailedResources         = "has failed resourceClaims"
 	reasonHasPendingResources        = "has pending resourceClaims"
-	reasonFailedToGenerateHelmValues = "failed to generate helm values"
+	reasonFailedToGenerateHelmValues = "failed to generate Helm values"
+	reasonProducingResources         = "cannot produce resources"
+	reasonSyncingApplication         = "cannot sync application"
+
+	gitlabChartURL = "https://gitlab-charts.s3.amazonaws.com/gitlab-1.8.4.tgz"
+
+	valuesKeyGlobal      = "global"
+	valuesKeyAppConfig   = "appConfig"
+	valuesKeyGitlab      = "gitlab"
+	valuesKeyCertmanager = "certmanager-issuer"
+	valuesKeyMinio       = "minio"
+	valuesKeyRedis       = "redis"
+	valuesKeyPostgres    = "postgresql" // Postgres is configured at .postgres
+	valuesKeyPSQL        = "psql"       // ...and at .global.psql
+	valuesKeyPrometheus  = "prometheus"
 )
 
 var (
@@ -69,17 +92,19 @@ var (
 // resourceReconciler interface provides abstract operations supported by all component reconciles
 type resourceReconciler interface {
 	// reconcile a given component
-	reconcile(context.Context) error
+	reconcile(ctx context.Context) error
 	// isReady() when given component status is ready
 	isReady() bool
 	// isFailed() when given component status is failed
 	isFailed() bool
 	// getClaimKind returns a component kind/type so we can loosely identify it in the status list
 	getClaimKind() string
+	// getClaimConnectionSecretName returns the claim's connection secret name.
+	getClaimConnectionSecretName() string
 	// getClaimConnectionSecret
-	getClaimConnectionSecret(context.Context) (*corev1.Secret, error)
-	// getHelmValues returns map of helm set key/value pairs
-	getHelmValues(context.Context, map[string]string) error
+	getClaimConnectionSecret(ctx context.Context) (*corev1.Secret, error)
+	// getHelmValues populates the supplied Values with this resource's values.
+	getHelmValues(ctx context.Context, dst chartutil.Values, secretPrefix string) error
 }
 
 // resourceClassFinder interface
@@ -105,9 +130,13 @@ func (r *baseResourceReconciler) isFailed() bool {
 	return r.status != nil && r.status.IsFailed()
 }
 
+func (r *baseResourceReconciler) getClaimConnectionSecretName() string {
+	return r.status.CredentialsSecretRef.Name
+}
+
 func (r *baseResourceReconciler) getClaimConnectionSecret(ctx context.Context) (*corev1.Secret, error) {
 	secret := &corev1.Secret{}
-	key := types.NamespacedName{Namespace: r.GetNamespace(), Name: r.status.CredentialsSecretRef.Name}
+	key := types.NamespacedName{Namespace: r.GetNamespace(), Name: r.getClaimConnectionSecretName()}
 	if err := r.client.Get(ctx, key, secret); err != nil {
 		return nil, errors.Wrapf(err, errorFmtFailedToRetrieveConnectionSecret, key)
 	}
@@ -137,21 +166,13 @@ func (r *baseResourceReconciler) find(ctx context.Context, provider corev1.Objec
 func (r *baseResourceReconciler) newObjectMeta(nameSuffixes ...string) metav1.ObjectMeta {
 	return metav1.ObjectMeta{
 		Namespace:       r.GetNamespace(),
-		Name:            strings.Join(append(append([]string{}, r.GetName()), nameSuffixes...), "-"),
+		Name:            strings.Join(append([]string{r.GetName()}, nameSuffixes...), "-"),
 		Labels:          map[string]string{"app": r.GetName()},
 		OwnerReferences: []metav1.OwnerReference{r.ToOwnerReference()},
 	}
 }
 
-// newKey helper function
-func (r *baseResourceReconciler) newNamespacedName(nameSuffixes ...string) types.NamespacedName {
-	return types.NamespacedName{
-		Namespace: r.GetNamespace(),
-		Name:      strings.Join(append(append([]string{}, r.GetName()), nameSuffixes...), "-"),
-	}
-}
-
-func (r *baseResourceReconciler) loadHelmValues(ctx context.Context, values map[string]string, function helmValuesFunction) error {
+func (r *baseResourceReconciler) loadHelmValues(ctx context.Context, dst chartutil.Values, fn helmValuesFunction, secretPrefix string) error {
 	if r.status == nil {
 		return errors.New(errorResourceStatusIsNotFound)
 	}
@@ -162,8 +183,7 @@ func (r *baseResourceReconciler) loadHelmValues(ctx context.Context, values map[
 		return errors.Wrapf(err, errorFmtFailedToRetrieveConnectionSecret, key)
 	}
 
-	function(values, r.Name, s)
-	return nil
+	return errors.Wrapf(fn(dst, s, r.componentName, secretPrefix), errorFmtFailedToMergeHelmValues, r.GetName())
 }
 
 // newBaseResourceReconciler returns a new instance of the component reconciler
@@ -234,27 +254,153 @@ func (r *resourceClaimsReconciler) reconcile(ctx context.Context, claims []resou
 	return reconcileSuccess, nil
 }
 
-type applicationReconciler struct {
-	*handle
+type resourceProducer interface {
+	produce(v chartutil.Values) ([]*unstructured.Unstructured, error)
 }
 
-var _ componentsReconciler = &applicationReconciler{}
+type helmResourceProducer struct {
+	chartURL string
+}
 
-func (a *applicationReconciler) reconcile(ctx context.Context, resources []resourceReconciler) (reconcile.Result, error) {
-	helmValues := make(map[string]string)
-	for _, claim := range resources {
-		log.V(logging.Debug).Info(claim.getClaimKind(), "ready", claim.isReady())
-		if err := claim.getHelmValues(ctx, helmValues); err != nil {
-			return reconcileFailure, a.fail(ctx, reasonFailedToGenerateHelmValues, err.Error())
+func (p *helmResourceProducer) produce(v chartutil.Values) ([]*unstructured.Unstructured, error) {
+	templates, err := helm.Render(p.chartURL, helm.WithValues(v))
+	return templates, errors.Wrap(err, errorFailedToRenderHelmChart)
+}
+
+type applicationProducer interface {
+	produce(ctrl *v1alpha1.GitLab, resources []*unstructured.Unstructured, m application.SecretMap) *xpworkloadv1alpha1.KubernetesApplication
+}
+
+type helmApplicationProducer struct{}
+
+func (p *helmApplicationProducer) produce(ctrl *v1alpha1.GitLab, resources []*unstructured.Unstructured, m application.SecretMap) *xpworkloadv1alpha1.KubernetesApplication {
+	// TODO(negz): Provide a cluster selector?
+	// TODO(negz): Override template namespaces, if necessary?
+	return application.New(ctrl.GetName(), resources,
+		application.WithSecretMap(m),
+		application.WithNamespace(ctrl.GetNamespace()),
+		application.WithLabels(ctrl.GetLabels()),
+		application.WithControllerReference(metav1.NewControllerRef(ctrl, v1alpha1.GitLabGroupVersionKind)))
+}
+
+type applicationReconciler struct {
+	*handle
+
+	resources   resourceProducer
+	application applicationProducer
+}
+
+func (a *applicationReconciler) getHelmValues(ctx context.Context, rr []resourceReconciler, secretPrefix string) (chartutil.Values, error) {
+	v := chartutil.Values{
+		valuesKeyGlobal: chartutil.Values{
+			valuesKeyMinio: chartutil.Values{"enabled": false},
+			"hosts":        chartutil.Values{"domain": a.Spec.Domain},
+		},
+		valuesKeyPostgres:    chartutil.Values{"install": false},
+		valuesKeyRedis:       chartutil.Values{"enabled": false},
+		valuesKeyPrometheus:  chartutil.Values{"install": false},
+		valuesKeyCertmanager: chartutil.Values{"email": a.Spec.Email},
+	}
+
+	for _, claim := range rr {
+		if err := claim.getHelmValues(ctx, v, secretPrefix); err != nil {
+			return nil, errors.Wrapf(err, errorFmtFailedToMergeHelmValues, v1alpha1.GitLabKind)
 		}
 	}
-	minioHelmValues(helmValues)
+	return v, nil
+}
 
-	// TODO: This is where we are ready to generate GitLab Kubernetes Application and
-	// 	update it with required resource
-	// 	secrets (all bucket secrets + postgres secret)
+func (a *applicationReconciler) getConnectionSecretNames(rr []resourceReconciler) []string {
+	names := make([]string, len(rr))
+	for i := range rr {
+		names[i] = rr[i].getClaimConnectionSecretName()
+	}
+	return names
+}
+
+func (a *applicationReconciler) reconcile(ctx context.Context, rr []resourceReconciler) (reconcile.Result, error) {
+	// This is a hack. KubernetesApplications expect connection secrets to be
+	// associated with the KubernetesApplicationResource templates that consume
+	// them. A secret named 'secretname' in the Crossplane API server will be
+	// propagated to the KubernetesCluster where the KubernetesApplication runs
+	// as 'templatenamespace/KARname-secretname'.
+	//
+	// We use Helm to render our KubernetesApplication. The Gitlab chart must be
+	// told where to load secrets in order to render the KubernetesApplication,
+	// so we have a chicken-and-egg problem; we can't render an app until we
+	// know what our connection secrets will be named and we can't know what our
+	// connection secrets will be named until we render the app. We work around
+	// this by associating all of our connection secrets with this empty secret,
+	// allowing us to reliably predict propagated secret names.
+	s := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "v1",
+		"kind":       "Secret",
+		"metadata":   map[string]interface{}{"name": "crossplane"},
+	}}
+	secretPrefix := fmt.Sprintf("%s-secret-%s-", a.GetName(), s.GetName())
+	secretNames := a.getConnectionSecretNames(rr)
+	secretMap := application.SecretMap{}
+	secretMap.Add(s, secretNames...)
+
+	v, err := a.getHelmValues(ctx, rr, secretPrefix)
+	if err != nil {
+		return reconcileFailure, a.fail(ctx, reasonFailedToGenerateHelmValues, err.Error())
+	}
+
+	// TODO(negz): Don't download the chart on every reconcile loop.
+	resources, err := a.resources.produce(v)
+	if err != nil {
+		return reconcileFailure, a.fail(ctx, reasonProducingResources, err.Error())
+	}
+	resources = append([]*unstructured.Unstructured{s}, resources...)
+
+	app := a.application.produce(a.handle.GitLab, resources, secretMap)
+
+	remote := app.DeepCopy()
+	if err := crud.CreateOrUpdate(ctx, a.client, remote, func() error {
+		// Inside this anonymous function remote could either be unchanged (if
+		// it does not exist in the API server) or updated to reflect its
+		// current state according to the API server.
+
+		if !hasSameController(remote, app) {
+			return errors.Errorf("%s %s exists and is not controlled by %s %s",
+				xpworkloadv1alpha1.KubernetesApplicationKind, remote.GetName(),
+				v1alpha1.GitLabKind, getControllerName(app))
+		}
+
+		remote.SetLabels(app.GetLabels())
+		remote.Spec = *app.Spec.DeepCopy()
+
+		return nil
+	}); err != nil {
+		return reconcileFailure, a.fail(ctx, reasonSyncingApplication, err.Error())
+	}
+
+	// TODO(negz): Derive readiness from application state.
 	a.SetReady()
 	return reconcileSuccess, a.update(ctx)
+}
+
+func hasSameController(a, b metav1.Object) bool {
+	ac := metav1.GetControllerOf(a)
+	bc := metav1.GetControllerOf(b)
+
+	// We do not consider two objects without any controller to have
+	// the same controller.
+	if ac == nil || bc == nil {
+		return false
+	}
+
+	return ac.UID == bc.UID
+}
+
+func getControllerName(obj metav1.Object) string {
+	c := metav1.GetControllerOf(obj)
+	if c == nil {
+		return ""
+	}
+
+	return c.Name
 }
 
 // gitLabReconciler
@@ -310,11 +456,15 @@ func newGitLabReconciler(gitlab *v1alpha1.GitLab, client client.Client) *gitLabR
 			newBucketReconciler(gitlab, client, "uploads", bucketConnectionHelmValues),
 		},
 		resourceClaimsReconciler: &resourceClaimsReconciler{handle: h},
-		applicationReconciler:    &applicationReconciler{handle: h},
+		applicationReconciler: &applicationReconciler{
+			handle:      h,
+			resources:   &helmResourceProducer{chartURL: gitlabChartURL},
+			application: &helmApplicationProducer{},
+		},
 	}
 }
 
-type helmValuesFunction func(map[string]string, string, *corev1.Secret)
+type helmValuesFunction func(dst chartutil.Values, s *corev1.Secret, propagatedSecretPrefix, bucketName string) error
 
 var _ reconciler = &gitLabReconciler{}
 
@@ -336,9 +486,3 @@ func (m *gitLabReconcilerMill) newReconciler(gitlab *v1alpha1.GitLab, client cli
 }
 
 var _ reconcilerMill = &gitLabReconcilerMill{}
-
-const helmMinioEnabled = "global.minio.enabled"
-
-func minioHelmValues(values map[string]string) {
-	values[helmMinioEnabled] = "false"
-}

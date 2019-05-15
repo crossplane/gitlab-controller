@@ -28,8 +28,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/crossplaneio/gitlab-controller/pkg/util"
-
 	"github.com/crossplaneio/gitlab-controller/pkg/test"
 )
 
@@ -154,7 +152,7 @@ func TestGitLabSetReady(t *testing.T) {
 			if name == "DifferentStatus" {
 				tt.want.UnsetCondition(xpcorev1alpha1.Failed)
 			}
-			if diff := cmp.Diff(tt.gitlab.Status, tt.want, cmp.Comparer(util.EqualConditionedStatus)); diff != "" {
+			if diff := cmp.Diff(tt.gitlab.Status, tt.want, cmp.Comparer(test.EqualConditionedStatus)); diff != "" {
 				t.Errorf("SetReady() %s", diff)
 			}
 		})
@@ -201,7 +199,7 @@ func TestGitLabSetPending(t *testing.T) {
 			if name == "DifferentStatus" {
 				tt.want.UnsetCondition(xpcorev1alpha1.Failed)
 			}
-			if diff := cmp.Diff(tt.gitlab.Status, tt.want, cmp.Comparer(util.EqualConditionedStatus)); diff != "" {
+			if diff := cmp.Diff(tt.gitlab.Status, tt.want, cmp.Comparer(test.EqualConditionedStatus)); diff != "" {
 				t.Errorf("SetPending() %s", diff)
 			}
 		})

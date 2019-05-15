@@ -18,7 +18,6 @@ package gitlab
 
 import (
 	"context"
-	"fmt"
 	"testing"
 
 	xpcorev1alpha1 "github.com/crossplaneio/crossplane/pkg/apis/core/v1alpha1"
@@ -27,14 +26,15 @@ import (
 	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/helm/pkg/chartutil"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/crossplaneio/gitlab-controller/pkg/apis/controller/v1alpha1"
 	"github.com/crossplaneio/gitlab-controller/pkg/test"
-	"github.com/crossplaneio/gitlab-controller/pkg/util"
 )
 
 const testBucket = "test-bucket"
@@ -64,6 +64,8 @@ func (m *mockSecretDataCreator) create(s *corev1.Secret) error { return m.mockCr
 func getBucketClaimType(name string) string {
 	return bucketClaimKind + "-" + name
 }
+
+var _ resourceReconciler = &bucketReconciler{}
 
 func Test_bucketReconciler_reconcile(t *testing.T) {
 	ctx := context.TODO()
@@ -114,7 +116,7 @@ func Test_bucketReconciler_reconcile(t *testing.T) {
 				},
 				bucketName: testBucket,
 			},
-			want: want{err: errors.Wrapf(testError, errorFmtFailedToCreate, getBucketClaimType(testBucket), testKey.String()+"-"+testBucket)},
+			want: want{err: errors.Wrapf(testError, errorFmtFailedToCreate, getBucketClaimType(testBucket), testKey.String()+"-"+xpstoragev1alpha1.BucketKind+"-"+testBucket)},
 		},
 		"FailToRetrieveObject-Other": {
 			fields: fields{
@@ -131,7 +133,7 @@ func Test_bucketReconciler_reconcile(t *testing.T) {
 				},
 				bucketName: testBucket,
 			},
-			want: want{err: errors.Wrapf(testError, errorFmtFailedToRetrieveInstance, getBucketClaimType(testBucket), testKey.String()+"-"+testBucket)},
+			want: want{err: errors.Wrapf(testError, errorFmtFailedToRetrieveInstance, getBucketClaimType(testBucket), testKey.String()+"-"+xpstoragev1alpha1.BucketKind+"-"+testBucket)},
 		},
 		"CreateSuccessful": {
 			fields: fields{
@@ -207,16 +209,15 @@ func Test_bucketReconciler_reconcile(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			f := func(map[string]string, string, *corev1.Secret) {}
-			r := newBucketReconciler(tt.fields.gitlab, tt.fields.client, tt.fields.bucketName, f)
+			r := newBucketReconciler(tt.fields.gitlab, tt.fields.client, tt.fields.bucketName, newMockHelmValuesFn(nil))
 			r.resourceClassFinder = tt.fields.finder
 			r.secretTransformer = tt.fields.transformer
 
 			if diff := cmp.Diff(r.reconcile(ctx), tt.want.err, cmpErrors); diff != "" {
-				t.Errorf("bucketReconciler.reconcile() error %s", diff)
+				t.Errorf("bucketReconciler.reconcile() -got error, +want error: %s", diff)
 			}
-			if diff := cmp.Diff(r.status, tt.want.status, cmp.Comparer(util.EqualConditionedStatus)); diff != "" {
-				t.Errorf("bucketReconciler.reconcile() status %s", diff)
+			if diff := cmp.Diff(r.status, tt.want.status, cmp.Comparer(test.EqualConditionedStatus)); diff != "" {
+				t.Errorf("bucketReconciler.reconcile() -got status, +want status: %s", diff)
 			}
 		})
 	}
@@ -230,20 +231,25 @@ func Test_bucketReconciler_getClaimKind(t *testing.T) {
 }
 
 func Test_bucketReconciler_getHelmValues(t *testing.T) {
-	ctx := context.TODO()
 	type fields struct {
 		baseResourceReconciler *baseResourceReconciler
 		resourceClassFinder    resourceClassFinder
 	}
+	type args struct {
+		ctx          context.Context
+		values       chartutil.Values
+		secretPrefix string
+	}
 	tests := map[string]struct {
 		fields fields
-		args   map[string]string
+		args   args
 		want   error
 	}{
 		"Failure": {
 			fields: fields{
 				baseResourceReconciler: newBaseResourceReconciler(newGitLabBuilder().build(), test.NewMockClient(), testBucket),
 			},
+			args: args{ctx: context.TODO()},
 			want: errors.New(errorResourceStatusIsNotFound),
 		},
 	}
@@ -253,7 +259,7 @@ func Test_bucketReconciler_getHelmValues(t *testing.T) {
 				baseResourceReconciler: tt.fields.baseResourceReconciler,
 				resourceClassFinder:    tt.fields.resourceClassFinder,
 			}
-			if diff := cmp.Diff(r.getHelmValues(ctx, tt.args), tt.want, cmpErrors); diff != "" {
+			if diff := cmp.Diff(r.getHelmValues(tt.args.ctx, tt.args.values, tt.args.secretPrefix), tt.want, cmpErrors); diff != "" {
 				t.Errorf("bucketReconciler.getHelmValues() error %s", diff)
 			}
 		})
@@ -374,197 +380,168 @@ func Test_gitlabSecretTransformer_transform(t *testing.T) {
 }
 
 func Test_bucketConnectionHelmValues(t *testing.T) {
+	endpoint := "gcs://coolBucket"
+	bucketName := "coolBucket"
+	secretName := "coolSecret"
+	secretPrefix := "coolPrefix-"
+	credentials := "coolBucketCredentials"
+
 	type args struct {
-		values map[string]string
-		name   string
-		secret *corev1.Secret
+		values       chartutil.Values
+		secret       *corev1.Secret
+		name         string
+		secretPrefix string
 	}
 	type want struct {
-		panic bool
-		data  map[string]string
+		values chartutil.Values
 	}
+
 	tests := map[string]struct {
 		args args
 		want want
 	}{
-		"Failure": {
-			args: args{},
-			want: want{panic: true},
-		},
-		"Success-NoValues": {
+		"EmptyValues": {
 			args: args{
-				values: make(map[string]string),
-				name:   "foo",
-				secret: &corev1.Secret{Data: map[string][]byte{}},
-			},
-			want: want{
-				data: map[string]string{
-					fmt.Sprintf(helmValueBucketFmt, "foo"):           "",
-					fmt.Sprintf(helmValueConnectionSecretFmt, "foo"): "",
-					fmt.Sprintf(helmValueConnectionKeyFmt, "foo"):    connectionKey,
-				},
-			},
-		},
-		"Success-WithValues": {
-			args: args{
-				values: make(map[string]string),
-				name:   "foo",
+				values: chartutil.Values{},
 				secret: &corev1.Secret{
-					ObjectMeta: testMeta,
+					ObjectMeta: metav1.ObjectMeta{Name: secretName},
 					Data: map[string][]byte{
-						xpcorev1alpha1.ResourceCredentialsSecretEndpointKey: []byte("bar"),
+						xpcorev1alpha1.ResourceCredentialsSecretEndpointKey: []byte(endpoint),
+						connectionKey: []byte(credentials),
 					},
 				},
+				name:         bucketName,
+				secretPrefix: secretPrefix,
 			},
 			want: want{
-				data: map[string]string{
-					fmt.Sprintf(helmValueBucketFmt, "foo"):           "bar",
-					fmt.Sprintf(helmValueConnectionSecretFmt, "foo"): testName,
-					fmt.Sprintf(helmValueConnectionKeyFmt, "foo"):    connectionKey,
+				values: chartutil.Values{
+					valuesKeyGlobal: chartutil.Values{
+						valuesKeyAppConfig: chartutil.Values{
+							bucketName: chartutil.Values{
+								"bucket": endpoint,
+								"connection": chartutil.Values{
+									"key":    connectionKey,
+									"secret": secretPrefix + secretName,
+								},
+							},
+						},
+					},
 				},
 			},
 		},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			defer func() {
-				if r := recover(); r != nil && !tt.want.panic {
-					t.Errorf("bucketConnectionHelmValues() panic: %v", r)
-				}
-			}()
-			bucketConnectionHelmValues(tt.args.values, tt.args.name, tt.args.secret)
-			if diff := cmp.Diff(tt.args.values, tt.want.data); diff != "" {
-				t.Errorf("bucketConnectionHelmValues() %s", diff)
+			bucketConnectionHelmValues(tt.args.values, tt.args.secret, tt.args.name, tt.args.secretPrefix)
+			if diff := cmp.Diff(tt.want.values, tt.args.values); diff != "" {
+				t.Errorf("bucketConnectionHelmValues() -want values, +got values: %s", diff)
 			}
 		})
 	}
 }
 
 func Test_bucketBackupsHelmValues(t *testing.T) {
+	endpoint := "gcs://coolBucket"
+	bucketName := "coolBucket"
+	secretName := "coolSecret"
+	secretPrefix := "coolPrefix-"
+	credentials := "coolBucketCredentials"
+
 	type args struct {
-		values map[string]string
-		name   string
-		secret *corev1.Secret
+		values       chartutil.Values
+		secret       *corev1.Secret
+		name         string
+		secretPrefix string
 	}
 	type want struct {
-		panic bool
-		data  map[string]string
+		values chartutil.Values
 	}
 	tests := map[string]struct {
 		args args
 		want want
 	}{
-		"Failure": {
-			args: args{},
-			want: want{panic: true},
-		},
-		"Success-NoValues": {
+		"EmptyValues": {
 			args: args{
-				values: make(map[string]string),
-				name:   "foo",
-				secret: &corev1.Secret{Data: map[string][]byte{}},
-			},
-			want: want{
-				data: map[string]string{
-					fmt.Sprintf(helmValueBucketFmt, "foo"): "",
-					helmValueTaskRunnerSecret:              "",
-					helmValueTaskRunnerKey:                 configKey,
-				},
-			},
-		},
-		"Success-WithValues": {
-			args: args{
-				values: make(map[string]string),
-				name:   "foo",
+				values: chartutil.Values{},
 				secret: &corev1.Secret{
-					ObjectMeta: testMeta,
+					ObjectMeta: metav1.ObjectMeta{Name: secretName},
 					Data: map[string][]byte{
-						xpcorev1alpha1.ResourceCredentialsSecretEndpointKey: []byte("bar"),
+						xpcorev1alpha1.ResourceCredentialsSecretEndpointKey: []byte(endpoint),
+						connectionKey: []byte(credentials),
 					},
 				},
+				name:         bucketName,
+				secretPrefix: secretPrefix,
 			},
 			want: want{
-				data: map[string]string{
-					fmt.Sprintf(helmValueBucketFmt, "foo"): "bar",
-					helmValueTaskRunnerSecret:              testName,
-					helmValueTaskRunnerKey:                 configKey,
+				values: chartutil.Values{
+					valuesKeyGitlab: chartutil.Values{
+						"task-runner": chartutil.Values{
+							"backups": chartutil.Values{
+								"objectStorage": chartutil.Values{
+									"config": chartutil.Values{
+										"key":    connectionKey,
+										"secret": secretPrefix + secretName,
+									},
+								},
+							},
+						},
+					},
+					valuesKeyGlobal: chartutil.Values{
+						valuesKeyAppConfig: chartutil.Values{"coolBucket": chartutil.Values{"bucket": string("gcs://coolBucket")}},
+					},
 				},
 			},
 		},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			defer func() {
-				if r := recover(); r != nil && !tt.want.panic {
-					t.Errorf("bucketBackupsHelmValues() panic: %v", r)
-				}
-			}()
-			bucketBackupsHelmValues(tt.args.values, tt.args.name, tt.args.secret)
-			if diff := cmp.Diff(tt.args.values, tt.want.data); diff != "" {
-				t.Errorf("bucketBackupsHelmValues() %s", diff)
+			bucketBackupsHelmValues(tt.args.values, tt.args.secret, tt.args.name, tt.args.secretPrefix)
+			if diff := cmp.Diff(tt.want.values, tt.args.values); diff != "" {
+				t.Errorf("bucketBackupsHelmValues() -want values, +got values: %s", diff)
 			}
 		})
 	}
 }
 
 func Test_bucketBackupsTempHelmValues(t *testing.T) {
+	bucketName := "coolBucket"
+
 	type args struct {
-		values map[string]string
-		name   string
-		secret *corev1.Secret
+		values       chartutil.Values
+		secret       *corev1.Secret
+		name         string
+		secretPrefix string
 	}
 	type want struct {
-		panic bool
-		data  map[string]string
+		values chartutil.Values
 	}
 	tests := map[string]struct {
 		args args
 		want want
 	}{
-		"Failure": {
-			args: args{},
-			want: want{panic: true},
-		},
-		"Success-NoValues": {
+		"EmptyValues": {
 			args: args{
-				values: make(map[string]string),
-				name:   "foo",
-				secret: &corev1.Secret{Data: map[string][]byte{}},
+				values: chartutil.Values{},
+				secret: &corev1.Secret{},
+				name:   bucketName,
 			},
 			want: want{
-				data: map[string]string{
-					helmValueBackupsTempBucket: "foo",
-				},
-			},
-		},
-		"Success-WithValues": {
-			args: args{
-				values: make(map[string]string),
-				name:   "foo",
-				secret: &corev1.Secret{
-					ObjectMeta: testMeta,
-					Data: map[string][]byte{
-						xpcorev1alpha1.ResourceCredentialsSecretEndpointKey: []byte("bar"),
+				values: chartutil.Values{
+					valuesKeyGlobal: chartutil.Values{
+						valuesKeyAppConfig: chartutil.Values{
+							"backups": chartutil.Values{"tmpBucket": bucketName},
+						},
 					},
-				},
-			},
-			want: want{
-				data: map[string]string{
-					helmValueBackupsTempBucket: "foo",
 				},
 			},
 		},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			defer func() {
-				if r := recover(); r != nil && !tt.want.panic {
-					t.Errorf("bucketBackupsTempHelmValues() panic: %v", r)
-				}
-			}()
-			bucketBackupsTempHelmValues(tt.args.values, tt.args.name, tt.args.secret)
-			if diff := cmp.Diff(tt.args.values, tt.want.data); diff != "" {
-				t.Errorf("bucketBackupsTempHelmValues() %s", diff)
+			bucketBackupsTempHelmValues(tt.args.values, tt.args.secret, tt.args.name, tt.args.secretPrefix)
+			if diff := cmp.Diff(tt.want.values, tt.args.values); diff != "" {
+				t.Errorf("bucketBackupsTempHelmValues() -want values, +got values: %s", diff)
 			}
 		})
 	}

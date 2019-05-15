@@ -9,7 +9,7 @@ metadata:
     heritage: {{ .Release.Service }}
 rules:
 - apiGroups:
-    - controller.gitlab.io
+    - controller.gitlab.com
   resources:
     - gitlabs
     - gitlabs/status
@@ -34,6 +34,7 @@ rules:
     - cache.aws.crossplane.io
     - azure.crossplane.io
     - gcp.crossplane.io
+    - workload.crossplane.io
   resources:
     - "*"
   verbs:
