@@ -34,7 +34,8 @@ import (
 )
 
 const (
-	bucketClaimKind = "bucket"
+	bucketClaimKind     = "bucket"
+	bucketNameDelimiter = "-"
 
 	errorMsgEmptyConnectionSecret = "connection secret has no data"
 	errorFmtEmptyToken            = "connection secret is missing required key %s"
@@ -139,7 +140,7 @@ func (r *bucketReconciler) reconcile(ctx context.Context) error {
 		ObjectMeta: meta,
 		Spec: xpstoragev1alpha1.BucketSpec{
 			ClassRef: ref,
-			Name:     strings.Join([]string{meta.GetName(), "%s"}, "-"),
+			Name:     strings.Join([]string{meta.Name, "%s"}, bucketNameDelimiter),
 		},
 	}
 	key := types.NamespacedName{Namespace: bucket.GetNamespace(), Name: bucket.GetName()}

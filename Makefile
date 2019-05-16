@@ -70,4 +70,5 @@ cobertura:
 	@cat $(GO_TEST_OUTPUT)/coverage.txt | \
 		grep -v zz_generated.deepcopy | \
 		grep -v 'pkg/controller/gitlab/add.go' | \
+		grep -v 'pkg/test/**' | \
 		$(GOCOVER_COBERTURA) > $(GO_TEST_OUTPUT)/cobertura-coverage.xml

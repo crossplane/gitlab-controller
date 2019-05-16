@@ -67,16 +67,17 @@ func Test_gcpSecretConnectionCreator_create(t *testing.T) {
 			},
 		},
 	}
+	testCaseName := "gcpSecretConnectionCreator.create()"
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			creator := &gcpSecretConnectionCreator{}
 			secret := &corev1.Secret{Data: tt.args}
 			if diff := cmp.Diff(creator.create(secret), tt.want.err, cmpErrors); diff != "" {
-				t.Errorf("gcpSecretConnectionCreator.create() error = %s", diff)
+				t.Errorf("%s error = %s", testCaseName, diff)
 				return
 			}
 			if diff := cmp.Diff(secret.Data, tt.want.data); tt.want.data != nil && diff != "" {
-				t.Errorf("gcpSecretConnectionCreator.create() data %s", diff)
+				t.Errorf("%s data %s", testCaseName, diff)
 			}
 		})
 	}
@@ -127,15 +128,17 @@ func Test_gcpSecretS3CmdConfigCreator_create(t *testing.T) {
 			},
 		},
 	}
+
+	testCaseName := "gcpSecretS3CmdConfigCreator.create()"
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			creator := &gcpSecretS3CmdConfigCreator{}
 			secret := &corev1.Secret{Data: tt.args}
 			if diff := cmp.Diff(creator.create(secret), tt.want.err, cmpErrors); diff != "" {
-				t.Errorf("gcpSecretS3CmdConfigCreator.create() error %s", diff)
+				t.Errorf("%s error %s", testCaseName, diff)
 			}
 			if diff := cmp.Diff(secret.Data, tt.want.data); diff != "" {
-				t.Errorf("gcpSecretS3CmdConfigCreator.create() data %s", diff)
+				t.Errorf("%s data %s", testCaseName, diff)
 			}
 		})
 	}

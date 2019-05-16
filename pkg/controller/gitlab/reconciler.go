@@ -49,6 +49,7 @@ const (
 
 	resourceAnnotationKey = "resource"
 
+	// delimiter to use when creating composite names for object metadata
 	errorFmtFailedToListResourceClasses        = "failed to list resource classes: [%s/%s, %s]"
 	errorFmtResourceClassNotFound              = "resource class not found for provider: [%s/%s, %s]"
 	errorFmtNotSupportedProvider               = "not supported provider: %s"
@@ -146,7 +147,8 @@ func (r *baseResourceReconciler) getClaimConnectionSecret(ctx context.Context) (
 
 // find returns resource class object reference base on provider and resource values
 // Note: if provider is not found, nil value is returned w/out error
-func (r *baseResourceReconciler) find(ctx context.Context, provider corev1.ObjectReference, resource string) (*corev1.ObjectReference, error) {
+func (r *baseResourceReconciler) find(ctx context.Context, provider corev1.ObjectReference,
+	resource string) (*corev1.ObjectReference, error) {
 	rcs := &xpcorev1alpha1.ResourceClassList{}
 	opts := &client.ListOptions{Namespace: provider.Namespace}
 	if err := r.client.List(ctx, opts, rcs); err != nil {
@@ -173,7 +175,8 @@ func (r *baseResourceReconciler) newObjectMeta(nameSuffixes ...string) metav1.Ob
 	}
 }
 
-func (r *baseResourceReconciler) loadHelmValues(ctx context.Context, dst chartutil.Values, fn helmValuesFunction, secretPrefix string) error {
+func (r *baseResourceReconciler) loadHelmValues(ctx context.Context, dst chartutil.Values, fn helmValuesFunction,
+	secretPrefix string) error {
 	if r.status == nil {
 		return errors.New(errorResourceStatusIsNotFound)
 	}
@@ -291,7 +294,8 @@ type applicationReconciler struct {
 	application applicationProducer
 }
 
-func (a *applicationReconciler) getHelmValues(ctx context.Context, rr []resourceReconciler, secretPrefix string) (chartutil.Values, error) {
+func (a *applicationReconciler) getHelmValues(ctx context.Context, rr []resourceReconciler,
+	secretPrefix string) (chartutil.Values, error) {
 	v := chartutil.Values{
 		valuesKeyGlobal: chartutil.Values{
 			valuesKeyMinio: chartutil.Values{"enabled": false},

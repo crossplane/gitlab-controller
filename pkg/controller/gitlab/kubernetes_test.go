@@ -39,6 +39,7 @@ var _ resourceReconciler = &kubernetesReconciler{}
 
 func Test_kubernetesReconciler_reconcile(t *testing.T) {
 	ctx := context.TODO()
+	testCaseName := "kubernetesReconciler.reconcile()"
 	testError := errors.New("test-error")
 	type fields struct {
 		base   *baseResourceReconciler
@@ -55,15 +56,16 @@ func Test_kubernetesReconciler_reconcile(t *testing.T) {
 		"SuccessfulWithClusterRef": {
 			fields: fields{
 				base: &baseResourceReconciler{
-					GitLab: newGitLabBuilder().withSpecClusterRef(&corev1.ObjectReference{Name: testName, Namespace: testNamespace}).build(),
+					GitLab: newGitLabBuilder().withSpecClusterRef(&corev1.ObjectReference{Name: testName,
+						Namespace: testNamespace}).build(),
 					client: &test.MockClient{
 						MockGet: func(ctx context.Context, key client.ObjectKey, obj runtime.Object) error {
 							o, ok := obj.(*xpcomputev1alpha1.KubernetesCluster)
 							if !ok {
-								t.Errorf("kubernetesReconciler.reconcile() unepxected type %T", obj)
+								t.Errorf("%s unexpected type %T", testCaseName, obj)
 							}
 							if diff := cmp.Diff(key, testKey); diff != "" {
-								t.Errorf("kubernetesReconciler.reconcile() unepxected key %s", diff)
+								t.Errorf("%s unexpected key %s", testCaseName, diff)
 							}
 							o.Status.SetCreating()
 							return nil
@@ -78,15 +80,16 @@ func Test_kubernetesReconciler_reconcile(t *testing.T) {
 		"FailureWithClusterRef": {
 			fields: fields{
 				base: &baseResourceReconciler{
-					GitLab: newGitLabBuilder().withSpecClusterRef(&corev1.ObjectReference{Name: testName, Namespace: testNamespace}).build(),
+					GitLab: newGitLabBuilder().withSpecClusterRef(&corev1.ObjectReference{Name: testName,
+						Namespace: testNamespace}).build(),
 					client: &test.MockClient{
 						MockGet: func(ctx context.Context, key client.ObjectKey, obj runtime.Object) error {
 							_, ok := obj.(*xpcomputev1alpha1.KubernetesCluster)
 							if !ok {
-								t.Errorf("kubernetesReconciler.reconcile() unepxected type %T", obj)
+								t.Errorf("%s unexpected type %T", testCaseName, obj)
 							}
 							if diff := cmp.Diff(key, testKey); diff != "" {
-								t.Errorf("kubernetesReconciler.reconcile() unepxected key %s", diff)
+								t.Errorf("%s unexpected key %s", testCaseName, diff)
 							}
 							return testError
 						},
@@ -101,7 +104,8 @@ func Test_kubernetesReconciler_reconcile(t *testing.T) {
 					GitLab: newGitLabBuilder().build(),
 				},
 				finder: &mockResourceClassFinder{
-					mockFind: func(ctx context.Context, provider corev1.ObjectReference, resource string) (*corev1.ObjectReference, error) {
+					mockFind: func(ctx context.Context, provider corev1.ObjectReference,
+						resource string) (*corev1.ObjectReference, error) {
 						return nil, testError
 					},
 				},
@@ -124,12 +128,14 @@ func Test_kubernetesReconciler_reconcile(t *testing.T) {
 					},
 				},
 				finder: &mockResourceClassFinder{
-					mockFind: func(ctx context.Context, provider corev1.ObjectReference, resource string) (*corev1.ObjectReference, error) {
+					mockFind: func(ctx context.Context, provider corev1.ObjectReference,
+						resource string) (*corev1.ObjectReference, error) {
 						return nil, nil
 					},
 				},
 			},
-			want: want{err: errors.Wrapf(testError, errorFmtFailedToCreate, kubernetesClaimKind, testKey.String()+"-"+xpcomputev1alpha1.KubernetesClusterKind)},
+			want: want{err: errors.Wrapf(testError, errorFmtFailedToCreate, kubernetesClaimKind,
+				testKey.String()+"-"+xpcomputev1alpha1.KubernetesClusterKind)},
 		},
 		"FailToRetrieveObject-Other": {
 			fields: fields{
@@ -142,12 +148,15 @@ func Test_kubernetesReconciler_reconcile(t *testing.T) {
 					},
 				},
 				finder: &mockResourceClassFinder{
-					mockFind: func(ctx context.Context, provider corev1.ObjectReference, resource string) (*corev1.ObjectReference, error) {
+					mockFind: func(ctx context.Context, provider corev1.ObjectReference,
+						resource string) (*corev1.ObjectReference, error) {
 						return nil, nil
 					},
 				},
 			},
-			want: want{err: errors.Wrapf(testError, errorFmtFailedToRetrieveInstance, kubernetesClaimKind, testKey.String()+"-"+xpcomputev1alpha1.KubernetesClusterKind)},
+			want: want{
+				err: errors.Wrapf(testError, errorFmtFailedToRetrieveInstance, kubernetesClaimKind, testKey.String()+"-"+xpcomputev1alpha1.KubernetesClusterKind),
+			},
 		},
 		"CreateSuccessful": {
 			fields: fields{
@@ -161,7 +170,8 @@ func Test_kubernetesReconciler_reconcile(t *testing.T) {
 					},
 				},
 				finder: &mockResourceClassFinder{
-					mockFind: func(ctx context.Context, provider corev1.ObjectReference, resource string) (*corev1.ObjectReference, error) {
+					mockFind: func(ctx context.Context, provider corev1.ObjectReference,
+						resource string) (*corev1.ObjectReference, error) {
 						return nil, nil
 					},
 				},
@@ -176,7 +186,7 @@ func Test_kubernetesReconciler_reconcile(t *testing.T) {
 						MockGet: func(ctx context.Context, key client.ObjectKey, obj runtime.Object) error {
 							o, ok := obj.(*xpcomputev1alpha1.KubernetesCluster)
 							if !ok {
-								return errors.Errorf("kubernetesReconciler.reconcile() type: %T", obj)
+								return errors.Errorf("%s type: %T", testCaseName, obj)
 							}
 							o.Status = *newResourceClaimStatusBuilder().withReadyStatus().build()
 							return nil
@@ -185,7 +195,8 @@ func Test_kubernetesReconciler_reconcile(t *testing.T) {
 					},
 				},
 				finder: &mockResourceClassFinder{
-					mockFind: func(ctx context.Context, provider corev1.ObjectReference, resource string) (*corev1.ObjectReference, error) {
+					mockFind: func(ctx context.Context, provider corev1.ObjectReference,
+						resource string) (*corev1.ObjectReference, error) {
 						return nil, nil
 					},
 				},
@@ -202,10 +213,10 @@ func Test_kubernetesReconciler_reconcile(t *testing.T) {
 				resourceClassFinder:    tt.fields.finder,
 			}
 			if diff := cmp.Diff(r.reconcile(ctx), tt.want.err, cmpErrors); diff != "" {
-				t.Errorf("kubernetesReconciler.reconcile() -got error, +want error: %s", diff)
+				t.Errorf("%s -got error, +want error: %s", testCaseName, diff)
 			}
 			if diff := cmp.Diff(r.status, tt.want.status, cmp.Comparer(test.EqualConditionedStatus)); diff != "" {
-				t.Errorf("kubernetesReconciler.reconcile() -got status, +want status: %s", diff)
+				t.Errorf("%s -got status, +want status: %s", testCaseName, diff)
 			}
 		})
 	}

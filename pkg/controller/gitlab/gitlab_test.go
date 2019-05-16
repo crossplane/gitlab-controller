@@ -129,6 +129,7 @@ func TestReconciler_Reconcile(t *testing.T) {
 		},
 	}
 
+	testCaseName := "Reconciler.Reconcile()"
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			r := &Reconciler{
@@ -137,10 +138,10 @@ func TestReconciler_Reconcile(t *testing.T) {
 			}
 			got, err := r.Reconcile(tt.request)
 			if diff := cmp.Diff(err, tt.want.err, cmpErrors); diff != "" {
-				t.Errorf("Reconciler.Reconcile() error %s", diff)
+				t.Errorf("%s error %s", testCaseName, diff)
 			}
 			if diff := cmp.Diff(got, tt.want.res); diff != "" {
-				t.Errorf("Reconciler.Reconcile() %s", diff)
+				t.Errorf("%s %s", testCaseName, diff)
 			}
 		})
 	}

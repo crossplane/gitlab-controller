@@ -40,6 +40,7 @@ var _ resourceReconciler = &redisReconciler{}
 
 func Test_redisReconciler_reconcile(t *testing.T) {
 	ctx := context.TODO()
+	testCaseName := "redisReconciler.reconcile()"
 	testError := errors.New("test-error")
 	type fields struct {
 		base   *baseResourceReconciler
@@ -59,7 +60,8 @@ func Test_redisReconciler_reconcile(t *testing.T) {
 					GitLab: newGitLabBuilder().build(),
 				},
 				finder: &mockResourceClassFinder{
-					mockFind: func(ctx context.Context, provider v1.ObjectReference, resource string) (*v1.ObjectReference, error) {
+					mockFind: func(ctx context.Context, provider v1.ObjectReference,
+						resource string) (*v1.ObjectReference, error) {
 						return nil, testError
 					},
 				},
@@ -81,12 +83,14 @@ func Test_redisReconciler_reconcile(t *testing.T) {
 					},
 				},
 				finder: &mockResourceClassFinder{
-					mockFind: func(ctx context.Context, provider v1.ObjectReference, resource string) (*v1.ObjectReference, error) {
+					mockFind: func(ctx context.Context, provider v1.ObjectReference,
+						resource string) (*v1.ObjectReference, error) {
 						return nil, nil
 					},
 				},
 			},
-			want: want{err: errors.Wrapf(testError, errorFmtFailedToCreate, redisClaimKind, testKey.String()+"-"+xpcachev1alpha1.RedisClusterKind)},
+			want: want{err: errors.Wrapf(testError, errorFmtFailedToCreate, redisClaimKind,
+				testKey.String()+"-"+xpcachev1alpha1.RedisClusterKind)},
 		},
 		"FailToRetrieveObject-Other": {
 			fields: fields{
@@ -99,12 +103,14 @@ func Test_redisReconciler_reconcile(t *testing.T) {
 					},
 				},
 				finder: &mockResourceClassFinder{
-					mockFind: func(ctx context.Context, provider v1.ObjectReference, resource string) (*v1.ObjectReference, error) {
+					mockFind: func(ctx context.Context, provider v1.ObjectReference,
+						resource string) (*v1.ObjectReference, error) {
 						return nil, nil
 					},
 				},
 			},
-			want: want{err: errors.Wrapf(testError, errorFmtFailedToRetrieveInstance, redisClaimKind, testKey.String()+"-"+xpcachev1alpha1.RedisClusterKind)},
+			want: want{err: errors.Wrapf(testError, errorFmtFailedToRetrieveInstance, redisClaimKind,
+				testKey.String()+"-"+xpcachev1alpha1.RedisClusterKind)},
 		},
 		"CreateSuccessful": {
 			fields: fields{
@@ -118,7 +124,8 @@ func Test_redisReconciler_reconcile(t *testing.T) {
 					},
 				},
 				finder: &mockResourceClassFinder{
-					mockFind: func(ctx context.Context, provider v1.ObjectReference, resource string) (*v1.ObjectReference, error) {
+					mockFind: func(ctx context.Context, provider v1.ObjectReference,
+						resource string) (*v1.ObjectReference, error) {
 						return nil, nil
 					},
 				},
@@ -133,7 +140,7 @@ func Test_redisReconciler_reconcile(t *testing.T) {
 						MockGet: func(ctx context.Context, key client.ObjectKey, obj runtime.Object) error {
 							o, ok := obj.(*xpcachev1alpha1.RedisCluster)
 							if !ok {
-								return errors.Errorf("redisReconciler.reconcile() type: %T", obj)
+								return errors.Errorf("%s type: %T", testCaseName, obj)
 							}
 							o.Status = *newResourceClaimStatusBuilder().withReadyStatus().build()
 							return nil
@@ -142,7 +149,8 @@ func Test_redisReconciler_reconcile(t *testing.T) {
 					},
 				},
 				finder: &mockResourceClassFinder{
-					mockFind: func(ctx context.Context, provider v1.ObjectReference, resource string) (*v1.ObjectReference, error) {
+					mockFind: func(ctx context.Context, provider v1.ObjectReference,
+						resource string) (*v1.ObjectReference, error) {
 						return nil, nil
 					},
 				},
@@ -159,10 +167,10 @@ func Test_redisReconciler_reconcile(t *testing.T) {
 				resourceClassFinder:    tt.fields.finder,
 			}
 			if diff := cmp.Diff(r.reconcile(ctx), tt.want.err, cmpErrors); diff != "" {
-				t.Errorf("redisReconciler.reconcile() -got error, +want error: %s", diff)
+				t.Errorf("%s -got error, +want error: %s", testCaseName, diff)
 			}
 			if diff := cmp.Diff(r.status, tt.want.status, cmp.Comparer(test.EqualConditionedStatus)); diff != "" {
-				t.Errorf("redisReconciler.reconcile() -got status, +want status: %s", diff)
+				t.Errorf("%s -got status, +want status: %s", testCaseName, diff)
 			}
 		})
 	}
@@ -214,7 +222,8 @@ func Test_redisReconciler_getHelmValues(t *testing.T) {
 				baseResourceReconciler: tt.fields.baseResourceReconciler,
 				resourceClassFinder:    tt.fields.resourceClassFinder,
 			}
-			if diff := cmp.Diff(r.getHelmValues(tt.args.ctx, tt.args.values, tt.args.secretPrefix), tt.want, cmpErrors); diff != "" {
+			if diff := cmp.Diff(r.getHelmValues(tt.args.ctx, tt.args.values, tt.args.secretPrefix), tt.want,
+				cmpErrors); diff != "" {
 				t.Errorf("redisReconciler.getHelmValues() error %s", diff)
 			}
 		})
