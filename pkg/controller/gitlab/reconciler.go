@@ -271,14 +271,12 @@ func (p *helmResourceProducer) produce(v chartutil.Values) ([]*unstructured.Unst
 }
 
 type applicationProducer interface {
-	produce(ctrl *v1alpha1.GitLab, resources []*unstructured.Unstructured,
-		m application.SecretMap) *xpworkloadv1alpha1.KubernetesApplication
+	produce(ctrl *v1alpha1.GitLab, resources []*unstructured.Unstructured, m application.SecretMap) *xpworkloadv1alpha1.KubernetesApplication
 }
 
 type helmApplicationProducer struct{}
 
-func (p *helmApplicationProducer) produce(ctrl *v1alpha1.GitLab, resources []*unstructured.Unstructured,
-	m application.SecretMap) *xpworkloadv1alpha1.KubernetesApplication {
+func (p *helmApplicationProducer) produce(ctrl *v1alpha1.GitLab, resources []*unstructured.Unstructured, m application.SecretMap) *xpworkloadv1alpha1.KubernetesApplication {
 	// TODO(negz): Provide a cluster selector?
 	// TODO(negz): Override template namespaces, if necessary?
 	return application.New(ctrl.GetName(), resources,

@@ -297,8 +297,7 @@ func Test_baseResourceReconciler_getClaimConnectionSecret(t *testing.T) {
 				},
 			},
 			want: want{
-				err: errors.Wrapf(testError, errorFmtFailedToRetrieveConnectionSecret, fmt.Sprintf("%s/%s",
-					testNamespace, testSecretName)),
+				err: errors.Wrapf(testError, errorFmtFailedToRetrieveConnectionSecret, fmt.Sprintf("%s/%s", testNamespace, testSecretName)),
 			},
 		},
 		"Successful": {
@@ -482,10 +481,7 @@ func Test_baseResourceReconciler_findResourceClass(t *testing.T) {
 					},
 				},
 			},
-			args: args{
-				provider: newProviderRef(testNamespace, testProviderName),
-				resource: testResource,
-			},
+			args: args{provider: newProviderRef(testNamespace, testProviderName), resource: testResource},
 			want: want{
 				err: errors.Errorf(errorFmtResourceClassNotFound, testNamespace, testProviderName, testResource),
 			},

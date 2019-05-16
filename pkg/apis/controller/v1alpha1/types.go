@@ -157,8 +157,10 @@ func (in *GitLab) SetFailed(reason, msg string) {
 
 // SetPending status with reason and message
 func (in *GitLab) SetPending(reason, msg string) {
-	in.Status.UnsetAllConditions()
-	in.Status.SetCondition(xpcorev1alpha1.NewCondition(xpcorev1alpha1.Pending, reason, msg))
+	if !in.Status.IsCondition(xpcorev1alpha1.Pending) {
+		in.Status.UnsetAllConditions()
+		in.Status.SetCondition(xpcorev1alpha1.NewCondition(xpcorev1alpha1.Pending, reason, msg))
+	}
 	in.Status.State = xpcorev1alpha1.Pending
 }
 

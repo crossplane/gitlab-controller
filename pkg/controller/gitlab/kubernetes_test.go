@@ -62,10 +62,10 @@ func Test_kubernetesReconciler_reconcile(t *testing.T) {
 						MockGet: func(ctx context.Context, key client.ObjectKey, obj runtime.Object) error {
 							o, ok := obj.(*xpcomputev1alpha1.KubernetesCluster)
 							if !ok {
-								t.Errorf("%s unepxected type %T", testCaseName, obj)
+								t.Errorf("%s unexpected type %T", testCaseName, obj)
 							}
 							if diff := cmp.Diff(key, testKey); diff != "" {
-								t.Errorf("%s unepxected key %s", testCaseName, diff)
+								t.Errorf("%s unexpected key %s", testCaseName, diff)
 							}
 							o.Status.SetCreating()
 							return nil
@@ -86,10 +86,10 @@ func Test_kubernetesReconciler_reconcile(t *testing.T) {
 						MockGet: func(ctx context.Context, key client.ObjectKey, obj runtime.Object) error {
 							_, ok := obj.(*xpcomputev1alpha1.KubernetesCluster)
 							if !ok {
-								t.Errorf("%s unepxected type %T", testCaseName, obj)
+								t.Errorf("%s unexpected type %T", testCaseName, obj)
 							}
 							if diff := cmp.Diff(key, testKey); diff != "" {
-								t.Errorf("%s unepxected key %s", testCaseName, diff)
+								t.Errorf("%s unexpected key %s", testCaseName, diff)
 							}
 							return testError
 						},
@@ -111,8 +111,7 @@ func Test_kubernetesReconciler_reconcile(t *testing.T) {
 				},
 			},
 			want: want{
-				err: errors.Wrapf(testError, errorFmtFailedToFindResourceClass, kubernetesClaimKind,
-					newGitLabBuilder().build().GetProviderRef()),
+				err: errors.Wrapf(testError, errorFmtFailedToFindResourceClass, kubernetesClaimKind, newGitLabBuilder().build().GetProviderRef()),
 			},
 		},
 		"FailToCreate": {
@@ -155,8 +154,9 @@ func Test_kubernetesReconciler_reconcile(t *testing.T) {
 					},
 				},
 			},
-			want: want{err: errors.Wrapf(testError, errorFmtFailedToRetrieveInstance, kubernetesClaimKind,
-				testKey.String()+"-"+xpcomputev1alpha1.KubernetesClusterKind)},
+			want: want{
+				err: errors.Wrapf(testError, errorFmtFailedToRetrieveInstance, kubernetesClaimKind, testKey.String()+"-"+xpcomputev1alpha1.KubernetesClusterKind),
+			},
 		},
 		"CreateSuccessful": {
 			fields: fields{

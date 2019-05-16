@@ -83,8 +83,7 @@ func Test_bucketReconciler_reconcile(t *testing.T) {
 
 	assertBucketName := func(obj runtime.Object) *xpstoragev1alpha1.Bucket {
 		b := assertBucketObject(t, testCaseName, obj)
-		if diff := cmp.Diff(b.Spec.Name,
-			testName+"-"+xpstoragev1alpha1.BucketKind+"-"+testBucket+bucketNameDelimiter+"%s"); diff != "" {
+		if diff := cmp.Diff(b.Spec.Name, testName+"-"+xpstoragev1alpha1.BucketKind+"-"+testBucket+bucketNameDelimiter+"%s"); diff != "" {
 			t.Errorf("%s unexpected name: %s", testCaseName, diff)
 		}
 		return b
@@ -116,8 +115,9 @@ func Test_bucketReconciler_reconcile(t *testing.T) {
 				},
 				bucketName: testBucket,
 			},
-			want: want{err: errors.Wrapf(testError, errorFmtFailedToFindResourceClass, getBucketClaimType(testBucket),
-				newGitLabBuilder().build().GetProviderRef())},
+			want: want{
+				err: errors.Wrapf(testError, errorFmtFailedToFindResourceClass, getBucketClaimType(testBucket), newGitLabBuilder().build().GetProviderRef()),
+			},
 		},
 		"FailToCreate": {
 			fields: fields{
@@ -141,8 +141,8 @@ func Test_bucketReconciler_reconcile(t *testing.T) {
 				bucketName: testBucket,
 			},
 			want: want{
-				err: errors.Wrapf(testError, errorFmtFailedToCreate, getBucketClaimType(testBucket),
-					testKey.String()+"-"+xpstoragev1alpha1.BucketKind+"-"+testBucket)},
+				err: errors.Wrapf(testError, errorFmtFailedToCreate, getBucketClaimType(testBucket), testKey.String()+"-"+xpstoragev1alpha1.BucketKind+"-"+testBucket),
+			},
 		},
 		"FailToRetrieveObject-Other": {
 			fields: fields{
@@ -161,8 +161,7 @@ func Test_bucketReconciler_reconcile(t *testing.T) {
 				},
 				bucketName: testBucket,
 			},
-			want: want{err: errors.Wrapf(testError, errorFmtFailedToRetrieveInstance, getBucketClaimType(testBucket),
-				testKey.String()+"-"+xpstoragev1alpha1.BucketKind+"-"+testBucket)},
+			want: want{err: errors.Wrapf(testError, errorFmtFailedToRetrieveInstance, getBucketClaimType(testBucket), testKey.String()+"-"+xpstoragev1alpha1.BucketKind+"-"+testBucket)},
 		},
 		"CreateSuccessful": {
 			fields: fields{
@@ -283,8 +282,7 @@ func Test_bucketReconciler_getHelmValues(t *testing.T) {
 	}{
 		"Failure": {
 			fields: fields{
-				baseResourceReconciler: newBaseResourceReconciler(newGitLabBuilder().build(),
-					test.NewMockClient(), testBucket),
+				baseResourceReconciler: newBaseResourceReconciler(newGitLabBuilder().build(), test.NewMockClient(), testBucket),
 			},
 			args: args{ctx: context.TODO()},
 			want: errors.New(errorResourceStatusIsNotFound),
@@ -470,7 +468,7 @@ func Test_bucketConnectionHelmValues(t *testing.T) {
 
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			bucketConnectionHelmValues(tt.args.values, tt.args.secret, tt.args.name, tt.args.secretPrefix)
+			_ = bucketConnectionHelmValues(tt.args.values, tt.args.secret, tt.args.name, tt.args.secretPrefix)
 			if diff := cmp.Diff(tt.want.values, tt.args.values); diff != "" {
 				t.Errorf("bucketConnectionHelmValues() -want values, +got values: %s", diff)
 			}
@@ -534,7 +532,7 @@ func Test_bucketBackupsHelmValues(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			bucketBackupsHelmValues(tt.args.values, tt.args.secret, tt.args.name, tt.args.secretPrefix)
+			_ = bucketBackupsHelmValues(tt.args.values, tt.args.secret, tt.args.name, tt.args.secretPrefix)
 			if diff := cmp.Diff(tt.want.values, tt.args.values); diff != "" {
 				t.Errorf("bucketBackupsHelmValues() -want values, +got values: %s", diff)
 			}
@@ -577,7 +575,7 @@ func Test_bucketBackupsTempHelmValues(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			bucketBackupsTempHelmValues(tt.args.values, tt.args.secret, tt.args.name, tt.args.secretPrefix)
+			_ = bucketBackupsTempHelmValues(tt.args.values, tt.args.secret, tt.args.name, tt.args.secretPrefix)
 			if diff := cmp.Diff(tt.want.values, tt.args.values); diff != "" {
 				t.Errorf("bucketBackupsTempHelmValues() -want values, +got values: %s", diff)
 			}

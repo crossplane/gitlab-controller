@@ -210,8 +210,7 @@ func Test_redisReconciler_getHelmValues(t *testing.T) {
 	}{
 		"Failure": {
 			fields: fields{
-				baseResourceReconciler: newBaseResourceReconciler(newGitLabBuilder().build(), test.NewMockClient(),
-					redisClaimKind),
+				baseResourceReconciler: newBaseResourceReconciler(newGitLabBuilder().build(), test.NewMockClient(), redisClaimKind),
 			},
 			args: args{ctx: context.TODO()},
 			want: errors.New(errorResourceStatusIsNotFound),
