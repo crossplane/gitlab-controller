@@ -81,6 +81,7 @@ const (
 	valuesKeyPostgres    = "postgresql" // Postgres is configured at .postgres
 	valuesKeyPSQL        = "psql"       // ...and at .global.psql
 	valuesKeyPrometheus  = "prometheus"
+	valuesKeyRunner      = "gitlab-runner"
 )
 
 var (
@@ -299,6 +300,12 @@ func (a *applicationReconciler) getHelmValues(ctx context.Context, rr []resource
 		valuesKeyGitlab: chartutil.Values{
 			"unicorn": chartutil.Values{
 				"helmTests": chartutil.Values{"enabled": false},
+			},
+		},
+		valuesKeyRunner: chartutil.Values{
+			"runners": chartutil.Values{
+				// Disable the runner cache.
+				"cache": chartutil.Values{},
 			},
 		},
 		valuesKeyPostgres:    chartutil.Values{"install": false},
