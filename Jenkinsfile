@@ -65,7 +65,7 @@ pipeline {
                 always {
                     archiveArtifacts "_output/tests/**/*"
                     junit "_output/tests/**/unit-tests.xml"
-                    cobertura coberturaReportFile: '_output/tests/**/coverage.xml',
+                    cobertura coberturaReportFile: '_output/tests/**/cobertura-coverage.xml',
                             classCoverageTargets: '50, 0, 0',
                             conditionalCoverageTargets: '70, 0, 0',
                             lineCoverageTargets: '40, 0, 0',
