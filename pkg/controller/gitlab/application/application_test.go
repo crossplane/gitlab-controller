@@ -33,6 +33,7 @@ const (
 
 var (
 	labels          = map[string]string{"cool": "very"}
+	annotations     = map[string]string{"cool.io/enabled": "true"}
 	clusterSelector = &metav1.LabelSelector{MatchLabels: map[string]string{"isitacluster": "yes"}}
 )
 
@@ -87,9 +88,9 @@ var (
 
 func TestProduce(t *testing.T) {
 	type args struct {
-		name      string
-		templates []*unstructured.Unstructured
-		opts      []Option
+		name string
+		ts   Templates
+		opts []Option
 	}
 	cases := []struct {
 		name string
@@ -99,11 +100,12 @@ func TestProduce(t *testing.T) {
 		{
 			name: "SimpleApplication",
 			args: args{
-				name:      name,
-				templates: []*unstructured.Unstructured{service, ingress},
+				name: name,
+				ts:   Templates{service, ingress},
 				opts: []Option{
 					WithNamespace(namespace),
 					WithLabels(labels),
+					WithAnnotations(annotations),
 					WithClusterSelector(clusterSelector),
 					WithControllerReference(ownerRef),
 				},
@@ -113,6 +115,7 @@ func TestProduce(t *testing.T) {
 					Namespace:       namespace,
 					Name:            name,
 					Labels:          labels,
+					Annotations:     annotations,
 					OwnerReferences: []metav1.OwnerReference{*ownerRef},
 				},
 				Spec: xpworkloadv1alpha1.KubernetesApplicationSpec{
@@ -121,8 +124,9 @@ func TestProduce(t *testing.T) {
 					ResourceTemplates: []xpworkloadv1alpha1.KubernetesApplicationResourceTemplate{
 						{
 							ObjectMeta: metav1.ObjectMeta{
-								Name:   name + "-service-" + name,
-								Labels: labels,
+								Name:        name + "-service-" + name,
+								Labels:      labels,
+								Annotations: annotations,
 							},
 							Spec: xpworkloadv1alpha1.KubernetesApplicationResourceSpec{
 								Template: service,
@@ -131,8 +135,9 @@ func TestProduce(t *testing.T) {
 						},
 						{
 							ObjectMeta: metav1.ObjectMeta{
-								Name:   name + "-ingress-" + name,
-								Labels: labels,
+								Name:        name + "-ingress-" + name,
+								Labels:      labels,
+								Annotations: annotations,
 							},
 							Spec: xpworkloadv1alpha1.KubernetesApplicationResourceSpec{
 								Template: ingress,
@@ -146,8 +151,8 @@ func TestProduce(t *testing.T) {
 		{
 			name: "WithoutOptions",
 			args: args{
-				name:      name,
-				templates: []*unstructured.Unstructured{service},
+				name: name,
+				ts:   Templates{service},
 			},
 			want: &xpworkloadv1alpha1.KubernetesApplication{
 				ObjectMeta: metav1.ObjectMeta{
@@ -171,9 +176,9 @@ func TestProduce(t *testing.T) {
 		{
 			name: "WithSecrets",
 			args: args{
-				name:      name,
-				templates: []*unstructured.Unstructured{service, ingress},
-				opts:      []Option{WithSecretMap(secretMap)},
+				name: name,
+				ts:   Templates{service, ingress},
+				opts: []Option{WithSecretMap(secretMap)},
 			},
 			want: &xpworkloadv1alpha1.KubernetesApplication{
 				ObjectMeta: metav1.ObjectMeta{
@@ -207,7 +212,7 @@ func TestProduce(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := New(tc.args.name, tc.args.templates, tc.args.opts...)
+			got := New(tc.args.name, tc.args.ts, tc.args.opts...)
 
 			if diff := cmp.Diff(tc.want, got); diff != "" {
 				t.Errorf("New(...): -want, +got: %s", diff)
