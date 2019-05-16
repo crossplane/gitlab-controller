@@ -296,6 +296,11 @@ func (a *applicationReconciler) getHelmValues(ctx context.Context, rr []resource
 			valuesKeyMinio: chartutil.Values{"enabled": false},
 			"hosts":        chartutil.Values{"domain": a.Spec.Domain},
 		},
+		valuesKeyGitlab: chartutil.Values{
+			"unicorn": chartutil.Values{
+				"helmTests": chartutil.Values{"enabled": false},
+			},
+		},
 		valuesKeyPostgres:    chartutil.Values{"install": false},
 		valuesKeyRedis:       chartutil.Values{"enabled": false},
 		valuesKeyPrometheus:  chartutil.Values{"install": false},
