@@ -100,6 +100,7 @@ type mockResourceReconciler struct {
 	mockIsReady                      func() bool
 	mockIsFailed                     func() bool
 	mockGetClaimKind                 func() string
+	mockGetClaimRef                  func() *corev1.ObjectReference
 	mockGetClaimConnectionSecretName func() string
 	mockGetClaimConnectionSecret     func(context.Context) (*corev1.Secret, error)
 	mockGetHelmValues                func(context.Context, chartutil.Values, string) error
@@ -116,6 +117,9 @@ func (m *mockResourceReconciler) isFailed() bool {
 }
 func (m *mockResourceReconciler) getClaimKind() string {
 	return m.mockGetClaimKind()
+}
+func (m *mockResourceReconciler) getClaimRef() *corev1.ObjectReference {
+	return m.mockGetClaimRef()
 }
 func (m *mockResourceReconciler) getClaimConnectionSecretName() string {
 	return m.mockGetClaimConnectionSecretName()

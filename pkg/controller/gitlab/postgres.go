@@ -41,6 +41,7 @@ const (
 type postgresReconciler struct {
 	*baseResourceReconciler
 	resourceClassFinder resourceClassFinder
+	ref                 *corev1.ObjectReference
 }
 
 func (r *postgresReconciler) reconcile(ctx context.Context) error {
@@ -67,11 +68,22 @@ func (r *postgresReconciler) reconcile(ctx context.Context) error {
 	}
 
 	r.status = &pg.Status
+	r.ref = &corev1.ObjectReference{
+		Kind:       pg.GetObjectKind().GroupVersionKind().Kind,
+		APIVersion: pg.GetObjectKind().GroupVersionKind().Version,
+		Namespace:  pg.GetNamespace(),
+		Name:       pg.GetName(),
+		UID:        pg.GetUID(),
+	}
 	return nil
 }
 
 func (r *postgresReconciler) getClaimKind() string {
 	return postgresqlClaimKind
+}
+
+func (r *postgresReconciler) getClaimRef() *corev1.ObjectReference {
+	return r.ref
 }
 
 func (r *postgresReconciler) getHelmValues(ctx context.Context, dst chartutil.Values, secretPrefix string) error {
