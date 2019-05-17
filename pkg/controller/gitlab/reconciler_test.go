@@ -28,7 +28,6 @@ import (
 	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -38,6 +37,7 @@ import (
 
 	"github.com/crossplaneio/gitlab-controller/pkg/apis/controller/v1alpha1"
 	"github.com/crossplaneio/gitlab-controller/pkg/controller/gitlab/application"
+	"github.com/crossplaneio/gitlab-controller/pkg/controller/gitlab/resource/helm"
 	"github.com/crossplaneio/gitlab-controller/pkg/test"
 )
 
@@ -497,7 +497,7 @@ func Test_baseResourceReconciler_findResourceClass(t *testing.T) {
 										Namespace: testNamespace,
 										Name:      "thingOne",
 										Annotations: map[string]string{
-											resourceAnnotationKey: testResource,
+											annotationResource: testResource,
 										},
 									},
 									ProviderRef: corev1.LocalObjectReference{Name: testProviderName},
@@ -532,7 +532,7 @@ func Test_baseResourceReconciler_findResourceClass(t *testing.T) {
 										Namespace: testNamespace,
 										Name:      "thingOne",
 										Annotations: map[string]string{
-											resourceAnnotationKey: testResource,
+											annotationResource: testResource,
 										},
 									},
 									ProviderRef: corev1.LocalObjectReference{Name: testProviderName},
@@ -542,7 +542,7 @@ func Test_baseResourceReconciler_findResourceClass(t *testing.T) {
 										Namespace: testNamespace,
 										Name:      "thingTwo",
 										Annotations: map[string]string{
-											resourceAnnotationKey: testResource,
+											annotationResource: testResource,
 										},
 									},
 									ProviderRef: corev1.LocalObjectReference{Name: testProviderName},
@@ -1039,20 +1039,20 @@ func Test_resourceClaimsReconciler_reconcile(t *testing.T) {
 	}
 }
 
-type mockResourceProducer struct {
-	resources []*unstructured.Unstructured
-	err       error
+type mockChartRenderer struct {
+	r   helm.Resources
+	err error
 }
 
-func (p *mockResourceProducer) produce(_ chartutil.Values) ([]*unstructured.Unstructured, error) {
-	return p.resources, p.err
+func (r *mockChartRenderer) render(name string, o ...helm.Option) (helm.Resources, error) {
+	return r.r, r.err
 }
 
-type mockApplicationProducer struct {
+type mockAppCreator struct {
 	app *xpworkloadv1alpha1.KubernetesApplication
 }
 
-func (p *mockApplicationProducer) produce(_ *v1alpha1.GitLab, _ []*unstructured.Unstructured, _ application.SecretMap) *xpworkloadv1alpha1.KubernetesApplication {
+func (p *mockAppCreator) create(_ string, _ application.Templates, _ ...application.Option) *xpworkloadv1alpha1.KubernetesApplication {
 	return p.app
 }
 
@@ -1060,11 +1060,13 @@ func Test_applicationReconciler_reconcile(t *testing.T) {
 	testError := errors.New("test-error")
 	ctrl := &v1alpha1.GitLab{ObjectMeta: metav1.ObjectMeta{UID: types.UID("coolUID")}}
 	ref := metav1.NewControllerRef(ctrl, v1alpha1.GitLabGroupVersionKind)
+	secretName := "coolSecret"
 
 	type fields struct {
 		handle      *handle
-		resources   resourceProducer
-		application applicationProducer
+		chartURL    string
+		chart       chartRenderer
+		application applicationCreator
 	}
 	type args struct {
 		ctx       context.Context
@@ -1103,7 +1105,7 @@ func Test_applicationReconciler_reconcile(t *testing.T) {
 					&mockResourceReconciler{
 						mockGetClaimKind:                 func() string { return testResource },
 						mockIsReady:                      func() bool { return true },
-						mockGetClaimConnectionSecretName: func() string { return "coolsecret" },
+						mockGetClaimConnectionSecretName: func() string { return secretName },
 						mockGetHelmValues:                func(context.Context, chartutil.Values, string) error { return testError },
 					},
 				},
@@ -1115,6 +1117,7 @@ func Test_applicationReconciler_reconcile(t *testing.T) {
 				handle: &handle{
 					GitLab: newGitLabBuilder().build(),
 					client: &test.MockClient{
+						MockGet: test.NewMockGetFn(nil),
 						MockStatusUpdate: func(ctx context.Context, obj runtime.Object) error {
 							gl, ok := obj.(*v1alpha1.GitLab)
 							if !ok {
@@ -1127,7 +1130,7 @@ func Test_applicationReconciler_reconcile(t *testing.T) {
 						},
 					},
 				},
-				resources: &mockResourceProducer{err: testError},
+				chart: &mockChartRenderer{err: testError},
 			},
 			args: args{
 				ctx: context.TODO(),
@@ -1135,7 +1138,7 @@ func Test_applicationReconciler_reconcile(t *testing.T) {
 					&mockResourceReconciler{
 						mockGetClaimKind:                 func() string { return testResource },
 						mockIsReady:                      func() bool { return true },
-						mockGetClaimConnectionSecretName: func() string { return "coolsecret" },
+						mockGetClaimConnectionSecretName: func() string { return secretName },
 						mockGetHelmValues:                func(context.Context, chartutil.Values, string) error { return nil },
 					},
 				},
@@ -1168,8 +1171,8 @@ func Test_applicationReconciler_reconcile(t *testing.T) {
 						},
 					},
 				},
-				resources: &mockResourceProducer{},
-				application: &mockApplicationProducer{app: &xpworkloadv1alpha1.KubernetesApplication{
+				chart: &mockChartRenderer{},
+				application: &mockAppCreator{app: &xpworkloadv1alpha1.KubernetesApplication{
 					ObjectMeta: metav1.ObjectMeta{OwnerReferences: []metav1.OwnerReference{*ref}},
 				}},
 			},
@@ -1179,7 +1182,7 @@ func Test_applicationReconciler_reconcile(t *testing.T) {
 					&mockResourceReconciler{
 						mockGetClaimKind:                 func() string { return testResource },
 						mockIsReady:                      func() bool { return true },
-						mockGetClaimConnectionSecretName: func() string { return "coolsecret" },
+						mockGetClaimConnectionSecretName: func() string { return secretName },
 						mockGetHelmValues:                func(context.Context, chartutil.Values, string) error { return nil },
 					},
 				},
@@ -1192,8 +1195,8 @@ func Test_applicationReconciler_reconcile(t *testing.T) {
 					GitLab: newGitLabBuilder().build(),
 					client: test.NewMockClient(),
 				},
-				resources: &mockResourceProducer{},
-				application: &mockApplicationProducer{app: &xpworkloadv1alpha1.KubernetesApplication{
+				chart: &mockChartRenderer{},
+				application: &mockAppCreator{app: &xpworkloadv1alpha1.KubernetesApplication{
 					ObjectMeta: metav1.ObjectMeta{OwnerReferences: []metav1.OwnerReference{*ref}},
 				}},
 			},
@@ -1203,19 +1206,79 @@ func Test_applicationReconciler_reconcile(t *testing.T) {
 					&mockResourceReconciler{
 						mockGetClaimKind:                 func() string { return testResource },
 						mockIsReady:                      func() bool { return true },
-						mockGetClaimConnectionSecretName: func() string { return "coolsecret" },
+						mockGetClaimConnectionSecretName: func() string { return secretName },
 						mockGetHelmValues:                func(context.Context, chartutil.Values, string) error { return nil },
 					},
 				},
 			},
 			want: want{result: reconcileSuccess},
 		},
+		"Unnecessary": {
+			fields: fields{
+				handle: &handle{
+					GitLab: newGitLabBuilder().build(),
+					client: &test.MockClient{
+						MockGet: func(_ context.Context, _ client.ObjectKey, obj runtime.Object) error {
+							*obj.(*xpworkloadv1alpha1.KubernetesApplication) = xpworkloadv1alpha1.KubernetesApplication{
+								ObjectMeta: metav1.ObjectMeta{
+									Annotations: map[string]string{
+										annotationGitlabChartURL: gitlabChartURL,
+										annotationGitlabHash:     hash(newGitLabBuilder().build(), defaultValues(newGitLabBuilder().build())),
+									},
+								},
+							}
+							return nil
+						},
+						MockStatusUpdate: func(_ context.Context, obj runtime.Object) error {
+							gl, ok := obj.(*v1alpha1.GitLab)
+							if !ok {
+								t.Errorf("applicationReconciler.reconcile() unexpected type %T", obj)
+							}
+							if gl.Status.State != xpcorev1alpha1.Ready {
+								t.Errorf("applicationReconciler.reconcile() unexpected status.state %s", gl.Status.State)
+							}
+							return nil
+						},
+					},
+				},
+				chartURL:    gitlabChartURL,
+				chart:       &mockChartRenderer{},
+				application: &mockAppCreator{},
+			},
+			args: args{ctx: context.TODO()},
+			want: want{result: reconcileSuccess},
+		},
+		"NeedsReconcileFailure": {
+			fields: fields{
+				handle: &handle{
+					GitLab: newGitLabBuilder().build(),
+					client: &test.MockClient{
+						MockGet: test.NewMockGetFn(testError),
+						MockStatusUpdate: func(_ context.Context, obj runtime.Object) error {
+							gl, ok := obj.(*v1alpha1.GitLab)
+							if !ok {
+								t.Errorf("applicationReconciler.reconcile() unexpected type %T", obj)
+							}
+							if gl.Status.State != xpcorev1alpha1.Failed {
+								t.Errorf("applicationReconciler.reconcile() unexpected status.state %s", gl.Status.State)
+							}
+							return nil
+						},
+					},
+				},
+				chart:       &mockChartRenderer{},
+				application: &mockAppCreator{},
+			},
+			args: args{ctx: context.TODO()},
+			want: want{result: reconcileFailure},
+		},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			a := &applicationReconciler{
 				handle:      tt.fields.handle,
-				resources:   tt.fields.resources,
+				chartURL:    tt.fields.chartURL,
+				chart:       tt.fields.chart,
 				application: tt.fields.application,
 			}
 			result, err := a.reconcile(tt.args.ctx, tt.args.resources)

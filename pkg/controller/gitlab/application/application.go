@@ -54,12 +54,16 @@ func (s SecretMap) ref(u *unstructured.Unstructured) corev1.ObjectReference {
 }
 
 type options struct {
-	namespace string
-	labels    map[string]string
-	cluster   *metav1.LabelSelector
-	owners    []metav1.OwnerReference
-	secrets   SecretMap
+	namespace   string
+	labels      map[string]string
+	annotations map[string]string
+	cluster     *metav1.LabelSelector
+	owners      []metav1.OwnerReference
+	secrets     SecretMap
 }
+
+// Templates used to create and manage resources on a remote KubernetesCluster.
+type Templates []*unstructured.Unstructured
 
 // Option configures a Producer.
 type Option func(*options)
@@ -75,6 +79,13 @@ func WithNamespace(namespace string) Option {
 func WithLabels(labels map[string]string) Option {
 	return func(o *options) {
 		o.labels = labels
+	}
+}
+
+// WithAnnotations configures the annotations of the produced application.
+func WithAnnotations(annotations map[string]string) Option {
+	return func(o *options) {
+		o.annotations = annotations
 	}
 }
 
@@ -103,7 +114,7 @@ func WithSecretMap(m SecretMap) Option {
 
 // New returns a KubernetesApplication that will manage resources based on the
 // supplied templates.
-func New(name string, templates []*unstructured.Unstructured, o ...Option) *xpworkloadv1alpha1.KubernetesApplication {
+func New(name string, ts Templates, o ...Option) *xpworkloadv1alpha1.KubernetesApplication {
 	opts := &options{
 		namespace: corev1.NamespaceDefault,
 		cluster:   &metav1.LabelSelector{}, // The empty selector selects all clusters.
@@ -118,16 +129,17 @@ func New(name string, templates []*unstructured.Unstructured, o ...Option) *xpwo
 			Namespace:       opts.namespace,
 			Name:            name,
 			Labels:          opts.labels,
+			Annotations:     opts.annotations,
 			OwnerReferences: opts.owners,
 		},
 		Spec: xpworkloadv1alpha1.KubernetesApplicationSpec{
 			ResourceSelector:  &metav1.LabelSelector{MatchLabels: opts.labels},
 			ClusterSelector:   opts.cluster,
-			ResourceTemplates: make([]xpworkloadv1alpha1.KubernetesApplicationResourceTemplate, len(templates)),
+			ResourceTemplates: make([]xpworkloadv1alpha1.KubernetesApplicationResourceTemplate, len(ts)),
 		},
 	}
 
-	for i, t := range templates {
+	for i, t := range ts {
 		secrets := opts.secrets.Get(t)
 		rt := xpworkloadv1alpha1.KubernetesApplicationResourceTemplate{
 			ObjectMeta: metav1.ObjectMeta{
@@ -135,8 +147,9 @@ func New(name string, templates []*unstructured.Unstructured, o ...Option) *xpwo
 				// two resources with the same kind and name but different API
 				// versions. The below format string will result in a name
 				// conflict.
-				Name:   strings.ToLower(fmt.Sprintf("%s-%s-%s", name, t.GetKind(), t.GetName())),
-				Labels: opts.labels,
+				Name:        strings.ToLower(fmt.Sprintf("%s-%s-%s", name, t.GetKind(), t.GetName())),
+				Labels:      opts.labels,
+				Annotations: opts.annotations,
 			},
 			Spec: xpworkloadv1alpha1.KubernetesApplicationResourceSpec{
 				Template: t,

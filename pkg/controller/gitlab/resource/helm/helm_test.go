@@ -29,7 +29,6 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/pkg/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/helm/pkg/chartutil"
 
 	"github.com/crossplaneio/gitlab-controller/pkg/test"
@@ -46,8 +45,8 @@ const (
 
 func TestProduce(t *testing.T) {
 	type want struct {
-		resources []*unstructured.Unstructured
-		err       error
+		r   Resources
+		err error
 	}
 	cases := []struct {
 		name     string
@@ -65,7 +64,7 @@ func TestProduce(t *testing.T) {
 				}),
 			},
 			want: want{
-				resources: []*unstructured.Unstructured{
+				r: Resources{
 					{
 						Object: map[string]interface{}{
 							"apiVersion": "v1",
@@ -108,7 +107,7 @@ func TestProduce(t *testing.T) {
 			chartDir: chartDir,
 			// The ingress is disabled by default, so we omit values.
 			want: want{
-				resources: []*unstructured.Unstructured{
+				r: Resources{
 					{
 						Object: map[string]interface{}{
 							"apiVersion": "v1",
@@ -139,7 +138,7 @@ func TestProduce(t *testing.T) {
 			chartDir: chartDir,
 			opts:     []Option{WithReleaseName(name)},
 			want: want{
-				resources: []*unstructured.Unstructured{
+				r: Resources{
 					{
 						Object: map[string]interface{}{
 							"apiVersion": "v1",
@@ -170,7 +169,7 @@ func TestProduce(t *testing.T) {
 			chartDir: chartDir,
 			opts:     []Option{WithValues(chartutil.Values{"setNamespace": true})},
 			want: want{
-				resources: []*unstructured.Unstructured{
+				r: Resources{
 					{
 						Object: map[string]interface{}{
 							"apiVersion": "v1",
@@ -207,7 +206,7 @@ func TestProduce(t *testing.T) {
 				WithReleaseNamespace(namespace),
 			},
 			want: want{
-				resources: []*unstructured.Unstructured{
+				r: Resources{
 					{
 						Object: map[string]interface{}{
 							"apiVersion": "v1",
@@ -251,11 +250,11 @@ func TestProduce(t *testing.T) {
 			}))
 			defer ts.Close()
 
-			resources, err := Render(ts.URL+chartPath, tc.opts...)
+			r, err := Render(ts.URL+chartPath, tc.opts...)
 			if diff := cmp.Diff(tc.want.err, err, test.EquateErrors()); diff != "" {
 				t.Fatalf("Render(...): -want error, +got error: %s", diff)
 			}
-			if diff := cmp.Diff(tc.want.resources, resources); diff != "" {
+			if diff := cmp.Diff(tc.want.r, r); diff != "" {
 				t.Errorf("Render(...): -want resources, +got resources: %s", diff)
 			}
 		})
