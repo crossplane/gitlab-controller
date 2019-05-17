@@ -115,6 +115,7 @@ type bucketReconciler struct {
 	resourceClassFinder resourceClassFinder
 	secretTransformer   secretTransformer
 	helmValuesFunction  helmValuesFunction
+	ref                 *corev1.ObjectReference
 }
 
 func newBucketReconciler(gitlab *v1alpha1.GitLab, client client.Client, name string, fn helmValuesFunction) *bucketReconciler {
@@ -153,6 +154,13 @@ func (r *bucketReconciler) reconcile(ctx context.Context) error {
 	}
 
 	r.status = &bucket.Status
+	r.ref = &corev1.ObjectReference{
+		Kind:       bucket.GetObjectKind().GroupVersionKind().Kind,
+		APIVersion: bucket.GetObjectKind().GroupVersionKind().Version,
+		Namespace:  bucket.GetNamespace(),
+		Name:       bucket.GetName(),
+		UID:        bucket.GetUID(),
+	}
 	if bucket.Status.IsReady() {
 		return r.secretTransformer.transform(ctx)
 	}
@@ -161,6 +169,10 @@ func (r *bucketReconciler) reconcile(ctx context.Context) error {
 
 func (r *bucketReconciler) getClaimKind() string {
 	return bucketClaimKind + "-" + r.componentName
+}
+
+func (r *bucketReconciler) getClaimRef() *corev1.ObjectReference {
+	return r.ref
 }
 
 func (r *bucketReconciler) getHelmValues(ctx context.Context, dst chartutil.Values, secretPrefix string) error {

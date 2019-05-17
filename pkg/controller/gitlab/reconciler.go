@@ -109,6 +109,8 @@ type resourceReconciler interface {
 	isFailed() bool
 	// getClaimKind returns a component kind/type so we can loosely identify it in the status list
 	getClaimKind() string
+	// getClaimRef returns a reference to this reconciler's resource claim.
+	getClaimRef() *corev1.ObjectReference
 	// getClaimConnectionSecretName returns the claim's connection secret name.
 	getClaimConnectionSecretName() string
 	// getClaimConnectionSecret
@@ -367,6 +369,15 @@ func (a *applicationReconciler) needsReconcile(ctx context.Context, v chartutil.
 	return existing.GetAnnotations()[annotationGitlabHash] != hash(a.GitLab, v), nil
 }
 
+func (a *applicationReconciler) clusterRef(rr []resourceReconciler) *corev1.ObjectReference {
+	for _, claim := range rr {
+		if claim.getClaimKind() == kubernetesClaimKind {
+			return claim.getClaimRef()
+		}
+	}
+	return nil
+}
+
 func (a *applicationReconciler) reconcile(ctx context.Context, rr []resourceReconciler) (reconcile.Result, error) {
 	// This is a hack. KubernetesApplications expect connection secrets to be
 	// associated with the KubernetesApplicationResource templates that consume
@@ -417,11 +428,12 @@ func (a *applicationReconciler) reconcile(ctx context.Context, rr []resourceReco
 	}
 	resources = append(helm.Resources{s}, resources...)
 
-	// TODO(negz): Provide a cluster selector?
 	// TODO(negz): Override template namespaces, if necessary?
+	// TODO(negz): Provide a cluster selector instead of a cluster reference.
 	app := a.application.create(a.GetName(), application.Templates(resources),
 		application.WithSecretMap(secretMap),
 		application.WithNamespace(a.GetNamespace()),
+		application.WithCluster(a.clusterRef(rr)),
 		application.WithControllerReference(metav1.NewControllerRef(a, v1alpha1.GitLabGroupVersionKind)),
 		application.WithLabels(a.GetLabels()),
 		application.WithAnnotations(map[string]string{

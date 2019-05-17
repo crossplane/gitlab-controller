@@ -57,7 +57,8 @@ type options struct {
 	namespace   string
 	labels      map[string]string
 	annotations map[string]string
-	cluster     *metav1.LabelSelector
+	cs          *metav1.LabelSelector
+	cluster     *corev1.ObjectReference
 	owners      []metav1.OwnerReference
 	secrets     SecretMap
 }
@@ -93,7 +94,15 @@ func WithAnnotations(annotations map[string]string) Option {
 // application. Applications will select all clusters by default.
 func WithClusterSelector(s *metav1.LabelSelector) Option {
 	return func(o *options) {
-		o.cluster = s
+		o.cs = s
+	}
+}
+
+// WithCluster configures the cluster of the produced application, skipping
+// scheduling.
+func WithCluster(c *corev1.ObjectReference) Option {
+	return func(o *options) {
+		o.cluster = c
 	}
 }
 
@@ -117,7 +126,7 @@ func WithSecretMap(m SecretMap) Option {
 func New(name string, ts Templates, o ...Option) *xpworkloadv1alpha1.KubernetesApplication {
 	opts := &options{
 		namespace: corev1.NamespaceDefault,
-		cluster:   &metav1.LabelSelector{}, // The empty selector selects all clusters.
+		cs:        &metav1.LabelSelector{}, // The empty selector selects all clusters.
 	}
 
 	for _, apply := range o {
@@ -134,8 +143,11 @@ func New(name string, ts Templates, o ...Option) *xpworkloadv1alpha1.KubernetesA
 		},
 		Spec: xpworkloadv1alpha1.KubernetesApplicationSpec{
 			ResourceSelector:  &metav1.LabelSelector{MatchLabels: opts.labels},
-			ClusterSelector:   opts.cluster,
+			ClusterSelector:   opts.cs,
 			ResourceTemplates: make([]xpworkloadv1alpha1.KubernetesApplicationResourceTemplate, len(ts)),
+		},
+		Status: xpworkloadv1alpha1.KubernetesApplicationStatus{
+			Cluster: opts.cluster,
 		},
 	}
 

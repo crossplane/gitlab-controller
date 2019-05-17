@@ -40,6 +40,7 @@ const (
 type redisReconciler struct {
 	*baseResourceReconciler
 	resourceClassFinder resourceClassFinder
+	ref                 *corev1.ObjectReference
 }
 
 func (r *redisReconciler) reconcile(ctx context.Context) error {
@@ -66,11 +67,22 @@ func (r *redisReconciler) reconcile(ctx context.Context) error {
 	}
 
 	r.status = &red.Status
+	r.ref = &corev1.ObjectReference{
+		Kind:       red.GetObjectKind().GroupVersionKind().Kind,
+		APIVersion: red.GetObjectKind().GroupVersionKind().Version,
+		Namespace:  red.GetNamespace(),
+		Name:       red.GetName(),
+		UID:        red.GetUID(),
+	}
 	return nil
 }
 
 func (r *redisReconciler) getClaimKind() string {
 	return redisClaimKind
+}
+
+func (r *redisReconciler) getClaimRef() *corev1.ObjectReference {
+	return r.ref
 }
 
 func (r *redisReconciler) getHelmValues(ctx context.Context, dst chartutil.Values, secretPrefix string) error {

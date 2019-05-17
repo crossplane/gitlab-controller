@@ -21,6 +21,7 @@ import (
 
 	xpcomputev1alpha1 "github.com/crossplaneio/crossplane/pkg/apis/compute/v1alpha1"
 	"github.com/pkg/errors"
+	corev1 "k8s.io/api/core/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/helm/pkg/chartutil"
@@ -37,6 +38,7 @@ const (
 type kubernetesReconciler struct {
 	*baseResourceReconciler
 	resourceClassFinder resourceClassFinder
+	ref                 *corev1.ObjectReference
 }
 
 func (r *kubernetesReconciler) reconcile(ctx context.Context) error {
@@ -54,15 +56,22 @@ func (r *kubernetesReconciler) reconcile(ctx context.Context) error {
 		}
 
 		r.status = &cluster.Status
+		r.ref = &corev1.ObjectReference{
+			Kind:       cluster.GetObjectKind().GroupVersionKind().Kind,
+			APIVersion: cluster.GetObjectKind().GroupVersionKind().Version,
+			Namespace:  cluster.GetNamespace(),
+			Name:       cluster.GetName(),
+			UID:        cluster.GetUID(),
+		}
 		return nil
 	}
 
 	// Find and use provider reference to create new Kubernetes cluster
-	ref, err := r.resourceClassFinder.find(ctx, r.GetProviderRef(), xpcomputev1alpha1.KubernetesClusterKindAPIVersion)
+	classRef, err := r.resourceClassFinder.find(ctx, r.GetProviderRef(), xpcomputev1alpha1.KubernetesClusterKindAPIVersion)
 	if err != nil {
 		return errors.Wrapf(err, errorFmtFailedToFindResourceClass, r.getClaimKind(), r.GetProviderRef())
 	}
-	cluster.Spec.ClassRef = ref
+	cluster.Spec.ClassRef = classRef
 	key := types.NamespacedName{Namespace: cluster.GetNamespace(), Name: cluster.GetName()}
 
 	if err := r.client.Get(ctx, key, cluster); err != nil {
@@ -73,11 +82,22 @@ func (r *kubernetesReconciler) reconcile(ctx context.Context) error {
 	}
 
 	r.status = &cluster.Status
+	r.ref = &corev1.ObjectReference{
+		Kind:       cluster.GetObjectKind().GroupVersionKind().Kind,
+		APIVersion: cluster.GetObjectKind().GroupVersionKind().Version,
+		Namespace:  cluster.GetNamespace(),
+		Name:       cluster.GetName(),
+		UID:        cluster.GetUID(),
+	}
 	return nil
 }
 
 func (r *kubernetesReconciler) getClaimKind() string {
 	return kubernetesClaimKind
+}
+
+func (r *kubernetesReconciler) getClaimRef() *corev1.ObjectReference {
+	return r.ref
 }
 
 func (r *kubernetesReconciler) getHelmValues(_ context.Context, _ chartutil.Values, _ string) error {

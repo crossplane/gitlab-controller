@@ -35,6 +35,7 @@ var (
 	labels          = map[string]string{"cool": "very"}
 	annotations     = map[string]string{"cool.io/enabled": "true"}
 	clusterSelector = &metav1.LabelSelector{MatchLabels: map[string]string{"isitacluster": "yes"}}
+	cluster         = &corev1.ObjectReference{Name: name}
 )
 
 var (
@@ -107,6 +108,7 @@ func TestProduce(t *testing.T) {
 					WithLabels(labels),
 					WithAnnotations(annotations),
 					WithClusterSelector(clusterSelector),
+					WithCluster(cluster),
 					WithControllerReference(ownerRef),
 				},
 			},
@@ -146,6 +148,7 @@ func TestProduce(t *testing.T) {
 						},
 					},
 				},
+				Status: xpworkloadv1alpha1.KubernetesApplicationStatus{Cluster: cluster},
 			},
 		},
 		{
