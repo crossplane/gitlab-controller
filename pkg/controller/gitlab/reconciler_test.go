@@ -22,6 +22,7 @@ import (
 	"testing"
 
 	xpcorev1alpha1 "github.com/crossplaneio/crossplane/pkg/apis/core/v1alpha1"
+	xpgcpv1alpha1 "github.com/crossplaneio/crossplane/pkg/apis/gcp/v1alpha1"
 	xpworkloadv1alpha1 "github.com/crossplaneio/crossplane/pkg/apis/workload/v1alpha1"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -44,6 +45,8 @@ import (
 var _ componentsReconciler = &applicationReconciler{}
 
 const testResource = "test-resource"
+
+var providerRef = corev1.ObjectReference{APIVersion: xpgcpv1alpha1.APIVersion}
 
 func newMockHelmValuesFn(err error) helmValuesFunction {
 	return func(_ chartutil.Values, _ *corev1.Secret, _, _ string) error { return err }
@@ -173,6 +176,10 @@ func (b *gitlabBuilder) withMeta(meta metav1.ObjectMeta) *gitlabBuilder {
 }
 func (b *gitlabBuilder) withSpecClusterRef(ref *corev1.ObjectReference) *gitlabBuilder {
 	b.GitLab.Spec.ClusterRef = ref
+	return b
+}
+func (b *gitlabBuilder) withSpecProviderRef(ref corev1.ObjectReference) *gitlabBuilder {
+	b.GitLab.Spec.ProviderRef = ref
 	return b
 }
 func (b *gitlabBuilder) withSpecDomain(domain string) *gitlabBuilder {
@@ -1196,7 +1203,7 @@ func Test_applicationReconciler_reconcile(t *testing.T) {
 		"Successful": {
 			fields: fields{
 				handle: &handle{
-					GitLab: newGitLabBuilder().build(),
+					GitLab: newGitLabBuilder().withSpecProviderRef(providerRef).build(),
 					client: test.NewMockClient(),
 				},
 				chart: &mockChartRenderer{},
@@ -1226,8 +1233,8 @@ func Test_applicationReconciler_reconcile(t *testing.T) {
 							*obj.(*xpworkloadv1alpha1.KubernetesApplication) = xpworkloadv1alpha1.KubernetesApplication{
 								ObjectMeta: metav1.ObjectMeta{
 									Annotations: map[string]string{
-										annotationGitlabChartURL: gitlabChartURL,
-										annotationGitlabHash:     hash(newGitLabBuilder().build(), defaultValues(newGitLabBuilder().build())),
+										annotationChartURL:   gitlabChartURL,
+										annotationGitlabHash: hash(newGitLabBuilder().build(), defaultValues(newGitLabBuilder().build())),
 									},
 								},
 							}
@@ -1280,10 +1287,10 @@ func Test_applicationReconciler_reconcile(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			a := &applicationReconciler{
-				handle:      tt.fields.handle,
-				chartURL:    tt.fields.chartURL,
-				chart:       tt.fields.chart,
-				application: tt.fields.application,
+				handle:         tt.fields.handle,
+				gitlabChartURL: tt.fields.chartURL,
+				chart:          tt.fields.chart,
+				application:    tt.fields.application,
 			}
 			result, err := a.reconcile(tt.args.ctx, tt.args.resources)
 			if diff := cmp.Diff(tt.want.err, err, cmpErrors); diff != "" {

@@ -23,7 +23,9 @@ import (
 	"strings"
 	"time"
 
+	xpawsv1alpha1 "github.com/crossplaneio/crossplane/pkg/apis/aws/v1alpha1"
 	xpcorev1alpha1 "github.com/crossplaneio/crossplane/pkg/apis/core/v1alpha1"
+	xpgcpv1alpha1 "github.com/crossplaneio/crossplane/pkg/apis/gcp/v1alpha1"
 	xpworkloadv1alpha1 "github.com/crossplaneio/crossplane/pkg/apis/workload/v1alpha1"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/pkg/errors"
@@ -40,6 +42,7 @@ import (
 	"github.com/crossplaneio/gitlab-controller/pkg/apis/controller/v1alpha1"
 	"github.com/crossplaneio/gitlab-controller/pkg/controller/gitlab/application"
 	"github.com/crossplaneio/gitlab-controller/pkg/controller/gitlab/resource/helm"
+	"github.com/crossplaneio/gitlab-controller/pkg/controller/gitlab/values"
 	"github.com/crossplaneio/gitlab-controller/pkg/crud"
 	"github.com/crossplaneio/gitlab-controller/pkg/logging"
 )
@@ -52,9 +55,9 @@ const (
 	redisEngineVersion    = "3.2"
 
 	// TODO(negz): Prefix this annotation.
-	annotationResource       = "resource"
-	annotationGitlabHash     = v1alpha1.Group + "/hash"
-	annotationGitlabChartURL = v1alpha1.Group + "/charturl"
+	annotationResource   = "resource"
+	annotationGitlabHash = v1alpha1.Group + "/hash"
+	annotationChartURL   = v1alpha1.Group + "/charturl"
 
 	// delimiter to use when creating composite names for object metadata
 	errorFmtFailedToListResourceClasses        = "failed to list resource classes: [%s/%s, %s]"
@@ -68,18 +71,26 @@ const (
 	errorFmtFailedToGet                        = "failed to get %s"
 	errorFmtFailedToCreate                     = "failed to create %s: %s"
 	errorFmtFailedToMergeHelmValues            = "failed to produce Helm values for %s"
+	errorFmtCannotGetProvider                  = "cannot get provider %s"
 
-	errorResourceStatusIsNotFound       = "resource status is not found"
-	errorFailedToDetermineReconcileNeed = "failed to determine whether reconcile was needed"
+	errorResourceStatusIsNotFound          = "resource status is not found"
+	errorFailedToDetermineReconcileNeed    = "failed to determine whether reconcile was needed"
+	errorProducingExternalDNSResources     = "cannot produce resources"
+	errorSyncingExternalDNS                = "cannot sync External DNS"
+	errorFailedToGenerateExternalDNSValues = "cannot generate External DNS values"
+	errorUnsupportedProvider               = "unsupported provider"
 
 	reasonResourceProcessingFailure  = "fail to process resource"
 	reasonHasFailedResources         = "has failed resourceClaims"
 	reasonHasPendingResources        = "has pending resourceClaims"
 	reasonFailedToGenerateHelmValues = "failed to generate Helm values"
 	reasonProducingResources         = "cannot produce resources"
-	reasonSyncingApplication         = "cannot sync application"
+	reasonSyncingGitlab              = "cannot sync Gitlab application"
+	reasonSyncingExternalDNS         = "cannot sync External DNS application"
 
-	gitlabChartURL = "https://gitlab-charts.s3.amazonaws.com/gitlab-1.8.4.tgz"
+	gitlabChartURL       = "https://gitlab-charts.s3.amazonaws.com/gitlab-1.8.4.tgz"
+	externalDNSChartURL  = "https://kubernetes-charts.storage.googleapis.com/external-dns-1.7.5.tgz"
+	externalDNSAppSuffix = "-externaldns"
 
 	valuesKeyGlobal      = "global"
 	valuesKeyAppConfig   = "appConfig"
@@ -291,7 +302,9 @@ func (fn applicationCreatorFn) create(name string, ts application.Templates, o .
 type applicationReconciler struct {
 	*handle
 
-	chartURL    string
+	gitlabChartURL      string
+	externalDNSChartURL string
+
 	chart       chartRenderer
 	application applicationCreator
 }
@@ -300,7 +313,10 @@ func defaultValues(gl *v1alpha1.GitLab) chartutil.Values {
 	return chartutil.Values{
 		valuesKeyGlobal: chartutil.Values{
 			valuesKeyMinio: chartutil.Values{"enabled": false},
-			"hosts":        chartutil.Values{"domain": gl.Spec.Domain},
+			"hosts": chartutil.Values{
+				"domain":     gl.Spec.Domain,
+				"hostSuffix": gl.Spec.HostSuffix,
+			},
 		},
 		valuesKeyGitlab: chartutil.Values{
 			"unicorn": chartutil.Values{
@@ -362,7 +378,7 @@ func (a *applicationReconciler) needsReconcile(ctx context.Context, v chartutil.
 		return false, errors.Wrapf(err, errorFmtFailedToGet, n)
 	}
 
-	if existing.GetAnnotations()[annotationGitlabChartURL] != a.chartURL {
+	if existing.GetAnnotations()[annotationChartURL] != a.gitlabChartURL {
 		return true, nil
 	}
 
@@ -422,7 +438,7 @@ func (a *applicationReconciler) reconcile(ctx context.Context, rr []resourceReco
 		return reconcileSuccess, a.update(ctx)
 	}
 
-	resources, err := a.chart.render(a.chartURL, helm.WithValues(values))
+	resources, err := a.chart.render(a.gitlabChartURL, helm.WithValues(values))
 	if err != nil {
 		return reconcileFailure, a.fail(ctx, reasonProducingResources, err.Error())
 	}
@@ -430,15 +446,16 @@ func (a *applicationReconciler) reconcile(ctx context.Context, rr []resourceReco
 
 	// TODO(negz): Override template namespaces, if necessary?
 	// TODO(negz): Provide a cluster selector instead of a cluster reference.
+	cluster := a.clusterRef(rr)
 	app := a.application.create(a.GetName(), application.Templates(resources),
 		application.WithSecretMap(secretMap),
 		application.WithNamespace(a.GetNamespace()),
-		application.WithCluster(a.clusterRef(rr)),
+		application.WithCluster(cluster),
 		application.WithControllerReference(metav1.NewControllerRef(a, v1alpha1.GitLabGroupVersionKind)),
 		application.WithLabels(a.GetLabels()),
 		application.WithAnnotations(map[string]string{
-			annotationGitlabChartURL: a.chartURL,
-			annotationGitlabHash:     hash(a.GitLab, values),
+			annotationChartURL:   a.gitlabChartURL,
+			annotationGitlabHash: hash(a.GitLab, values),
 		}))
 
 	remote := app.DeepCopy()
@@ -458,12 +475,81 @@ func (a *applicationReconciler) reconcile(ctx context.Context, rr []resourceReco
 
 		return nil
 	}); err != nil {
-		return reconcileFailure, a.fail(ctx, reasonSyncingApplication, err.Error())
+		return reconcileFailure, a.fail(ctx, reasonSyncingGitlab, err.Error())
+	}
+
+	if err := a.reconcileExternalDNS(ctx, cluster); err != nil {
+		return reconcileFailure, a.fail(ctx, reasonSyncingExternalDNS, err.Error())
 	}
 
 	// TODO(negz): Derive readiness from application state.
 	a.SetReady()
 	return reconcileSuccess, a.update(ctx)
+}
+
+func (a *applicationReconciler) externalDNSValues(ctx context.Context, provider corev1.ObjectReference, dst chartutil.Values) error {
+	switch provider.APIVersion {
+	case xpgcpv1alpha1.APIVersion:
+		p := &xpgcpv1alpha1.Provider{}
+		n := types.NamespacedName{Namespace: provider.Namespace, Name: provider.Name}
+		if err := a.client.Get(ctx, n, p); err != nil {
+			return errors.Wrapf(err, errorFmtCannotGetProvider, n)
+		}
+		return values.Merge(dst, chartutil.Values{
+			"provider": "google",
+			"google":   chartutil.Values{"project": p.Spec.ProjectID},
+		})
+	case xpawsv1alpha1.APIVersion:
+		return values.Merge(dst, chartutil.Values{"provider": "aws"})
+	default:
+		return errors.New(errorUnsupportedProvider)
+	}
+}
+
+func (a *applicationReconciler) reconcileExternalDNS(ctx context.Context, cluster *corev1.ObjectReference) error {
+	values := chartutil.Values{
+		"rbac":          chartutil.Values{"create": true},
+		"txtOwnerId":    a.GetUID(),
+		"domainFilters": []string{a.Spec.Domain},
+	}
+	if err := a.externalDNSValues(ctx, a.GetProviderRef(), values); err != nil {
+		return errors.Wrap(err, errorFailedToGenerateExternalDNSValues)
+	}
+
+	resources, err := a.chart.render(a.externalDNSChartURL, helm.WithValues(values))
+	if err != nil {
+		return errors.Wrap(err, errorProducingExternalDNSResources)
+	}
+
+	// TODO(negz): Override template namespaces, if necessary?
+	// TODO(negz): Provide a cluster selector instead of a cluster reference.
+	app := a.application.create(a.GetName()+externalDNSAppSuffix, application.Templates(resources),
+		application.WithNamespace(a.GetNamespace()),
+		application.WithCluster(cluster),
+		application.WithControllerReference(metav1.NewControllerRef(a, v1alpha1.GitLabGroupVersionKind)),
+		application.WithLabels(a.GetLabels()),
+		application.WithAnnotations(map[string]string{
+			annotationChartURL:   a.externalDNSChartURL,
+			annotationGitlabHash: hash(a.GitLab, values),
+		}))
+
+	remote := app.DeepCopy()
+	return errors.Wrap(crud.CreateOrUpdate(ctx, a.client, remote, func() error {
+		// Inside this anonymous function remote could either be unchanged (if
+		// it does not exist in the API server) or updated to reflect its
+		// current state according to the API server.
+
+		if !hasSameController(remote, app) {
+			return errors.Errorf("%s %s exists and is not controlled by %s %s",
+				xpworkloadv1alpha1.KubernetesApplicationKind, remote.GetName(),
+				v1alpha1.GitLabKind, getControllerName(app))
+		}
+
+		remote.SetLabels(app.GetLabels())
+		remote.Spec = *app.Spec.DeepCopy()
+
+		return nil
+	}), errorSyncingExternalDNS)
 }
 
 func hasSameController(a, b metav1.Object) bool {
@@ -542,8 +628,11 @@ func newGitLabReconciler(gitlab *v1alpha1.GitLab, client client.Client) *gitLabR
 		},
 		resourceClaimsReconciler: &resourceClaimsReconciler{handle: h},
 		applicationReconciler: &applicationReconciler{
-			handle:      h,
-			chartURL:    gitlabChartURL,
+			handle: h,
+
+			gitlabChartURL:      gitlabChartURL,
+			externalDNSChartURL: externalDNSChartURL,
+
 			chart:       chartRendererFn(helm.Render),
 			application: applicationCreatorFn(application.New),
 		},

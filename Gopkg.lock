@@ -134,12 +134,14 @@
 
 [[projects]]
   branch = "master"
-  digest = "1:8652001da6afc06607152e1dd45ef98f4b381f3578e752e53a46179227615dc7"
+  digest = "1:802cf72ad3016035b9bf6f5d48205d5af82f731f01e57732ca0bd7fc743fbe06"
   name = "github.com/crossplaneio/crossplane"
   packages = [
+    "pkg/apis/aws/v1alpha1",
     "pkg/apis/cache/v1alpha1",
     "pkg/apis/compute/v1alpha1",
     "pkg/apis/core/v1alpha1",
+    "pkg/apis/gcp/v1alpha1",
     "pkg/apis/storage/v1alpha1",
     "pkg/apis/workload/v1alpha1",
     "pkg/util",
@@ -1554,9 +1556,11 @@
   analyzer-name = "dep"
   analyzer-version = 1
   input-imports = [
+    "github.com/crossplaneio/crossplane/pkg/apis/aws/v1alpha1",
     "github.com/crossplaneio/crossplane/pkg/apis/cache/v1alpha1",
     "github.com/crossplaneio/crossplane/pkg/apis/compute/v1alpha1",
     "github.com/crossplaneio/crossplane/pkg/apis/core/v1alpha1",
+    "github.com/crossplaneio/crossplane/pkg/apis/gcp/v1alpha1",
     "github.com/crossplaneio/crossplane/pkg/apis/storage/v1alpha1",
     "github.com/crossplaneio/crossplane/pkg/apis/workload/v1alpha1",
     "github.com/crossplaneio/crossplane/pkg/util",

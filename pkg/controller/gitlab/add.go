@@ -17,9 +17,11 @@ limitations under the License.
 package gitlab
 
 import (
+	xpawsv1alpha1 "github.com/crossplaneio/crossplane/pkg/apis/aws/v1alpha1"
 	xpcachev1alpha1 "github.com/crossplaneio/crossplane/pkg/apis/cache/v1alpha1"
 	xpcomputev1alpha1 "github.com/crossplaneio/crossplane/pkg/apis/compute/v1alpha1"
 	xpcorev1alpha1 "github.com/crossplaneio/crossplane/pkg/apis/core/v1alpha1"
+	xpgcpv1alpha1 "github.com/crossplaneio/crossplane/pkg/apis/gcp/v1alpha1"
 	xpstoragev1alpha1 "github.com/crossplaneio/crossplane/pkg/apis/storage/v1alpha1"
 	xpworkloadv1alpha1 "github.com/crossplaneio/crossplane/pkg/apis/workload/v1alpha1"
 
@@ -49,6 +51,8 @@ func Add(mgr manager.Manager) error {
 	}
 
 	_ = xpcorev1alpha1.SchemeBuilder.AddToScheme(mgr.GetScheme())
+	_ = xpawsv1alpha1.SchemeBuilder.AddToScheme(mgr.GetScheme())
+	_ = xpgcpv1alpha1.SchemeBuilder.AddToScheme(mgr.GetScheme())
 	_ = xpcachev1alpha1.SchemeBuilder.AddToScheme(mgr.GetScheme())
 	_ = xpcomputev1alpha1.SchemeBuilder.AddToScheme(mgr.GetScheme())
 	_ = xpstoragev1alpha1.SchemeBuilder.AddToScheme(mgr.GetScheme())
