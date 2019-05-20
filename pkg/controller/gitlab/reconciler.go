@@ -441,6 +441,7 @@ func (a *applicationReconciler) reconcile(ctx context.Context, rr []resourceReco
 			"namespace", a.GetNamespace(),
 			"name", a.GetName())
 		if a.isReady(ctx) {
+			a.GitLab.Status.UnsetAllConditions()
 			a.SetReady()
 			return reconcileSuccess, a.update(ctx)
 		}
@@ -492,6 +493,7 @@ func (a *applicationReconciler) reconcile(ctx context.Context, rr []resourceReco
 	}
 
 	if a.isReady(ctx) {
+		a.GitLab.Status.UnsetAllConditions()
 		a.SetReady()
 		return reconcileSuccess, a.update(ctx)
 	}
