@@ -29,11 +29,13 @@ import (
 	xpworkloadv1alpha1 "github.com/crossplaneio/crossplane/pkg/apis/workload/v1alpha1"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/pkg/errors"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/json"
 	"k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/helm/pkg/chartutil"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -91,6 +93,8 @@ const (
 	gitlabChartURL       = "https://gitlab-charts.s3.amazonaws.com/gitlab-1.8.4.tgz"
 	externalDNSChartURL  = "https://kubernetes-charts.storage.googleapis.com/external-dns-1.7.5.tgz"
 	externalDNSAppSuffix = "-externaldns"
+
+	unicornResourceSuffix = "-deployment-gitlab-unicorn"
 
 	valuesKeyGlobal      = "global"
 	valuesKeyAppConfig   = "appConfig"
@@ -394,6 +398,8 @@ func (a *applicationReconciler) clusterRef(rr []resourceReconciler) *corev1.Obje
 	return nil
 }
 
+// TODO(negz): Burn this code to the ground.
+// nolint:gocyclo
 func (a *applicationReconciler) reconcile(ctx context.Context, rr []resourceReconciler) (reconcile.Result, error) {
 	// This is a hack. KubernetesApplications expect connection secrets to be
 	// associated with the KubernetesApplicationResource templates that consume
@@ -434,8 +440,11 @@ func (a *applicationReconciler) reconcile(ctx context.Context, rr []resourceReco
 			"kind", xpworkloadv1alpha1.KubernetesApplicationKind,
 			"namespace", a.GetNamespace(),
 			"name", a.GetName())
-		a.SetReady()
-		return reconcileSuccess, a.update(ctx)
+		if a.isReady(ctx) {
+			a.SetReady()
+			return reconcileSuccess, a.update(ctx)
+		}
+		return reconcileWait, a.update(ctx)
 	}
 
 	resources, err := a.chart.render(a.gitlabChartURL, helm.WithValues(values))
@@ -482,9 +491,36 @@ func (a *applicationReconciler) reconcile(ctx context.Context, rr []resourceReco
 		return reconcileFailure, a.fail(ctx, reasonSyncingExternalDNS, err.Error())
 	}
 
-	// TODO(negz): Derive readiness from application state.
-	a.SetReady()
-	return reconcileSuccess, a.update(ctx)
+	if a.isReady(ctx) {
+		a.SetReady()
+		return reconcileSuccess, a.update(ctx)
+	}
+	return reconcileWait, a.update(ctx)
+}
+
+// TODO(negz): Consider more factors than whether the unicorn deployment is
+// available, i.e. whether the ingress controller and external DNS deployments
+// are ready.
+func (a *applicationReconciler) isReady(ctx context.Context) bool {
+	unicorn := a.GetName() + unicornResourceSuffix
+	r := &xpworkloadv1alpha1.KubernetesApplicationResource{}
+	n := types.NamespacedName{Namespace: a.GetNamespace(), Name: unicorn}
+	if err := a.client.Get(ctx, n, r); err != nil {
+		log.V(logging.Debug).Info("KubernetesApplicationResource not yet ready", "name", unicorn, "error", err)
+		return false
+	}
+
+	if r.Status.Remote == nil {
+		return false
+	}
+
+	s := &appsv1.DeploymentStatus{}
+	if err := json.Unmarshal(r.Status.Remote.Raw, s); err != nil {
+		log.V(logging.Debug).Info("KubernetesApplicationResource not yet ready", "name", unicorn, "error", err)
+		return false
+	}
+
+	return s.AvailableReplicas > 0
 }
 
 func (a *applicationReconciler) externalDNSValues(ctx context.Context, provider corev1.ObjectReference, dst chartutil.Values) error {

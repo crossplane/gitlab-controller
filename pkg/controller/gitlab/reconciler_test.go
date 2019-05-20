@@ -18,6 +18,7 @@ package gitlab
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"testing"
 
@@ -1204,7 +1205,22 @@ func Test_applicationReconciler_reconcile(t *testing.T) {
 			fields: fields{
 				handle: &handle{
 					GitLab: newGitLabBuilder().withSpecProviderRef(providerRef).build(),
-					client: test.NewMockClient(),
+					client: &test.MockClient{
+						MockGet: func(_ context.Context, _ client.ObjectKey, obj runtime.Object) error {
+							o, ok := obj.(*xpworkloadv1alpha1.KubernetesApplicationResource)
+							if ok {
+								*o = xpworkloadv1alpha1.KubernetesApplicationResource{
+									Status: xpworkloadv1alpha1.KubernetesApplicationResourceStatus{
+										Remote: &xpworkloadv1alpha1.RemoteStatus{
+											Raw: json.RawMessage(`{"availableReplicas": 1}`),
+										},
+									},
+								}
+							}
+							return nil
+						},
+						MockStatusUpdate: test.NewMockStatusUpdateFn(nil),
+					},
 				},
 				chart: &mockChartRenderer{},
 				application: &mockAppCreator{app: &xpworkloadv1alpha1.KubernetesApplication{
@@ -1230,13 +1246,24 @@ func Test_applicationReconciler_reconcile(t *testing.T) {
 					GitLab: newGitLabBuilder().build(),
 					client: &test.MockClient{
 						MockGet: func(_ context.Context, _ client.ObjectKey, obj runtime.Object) error {
-							*obj.(*xpworkloadv1alpha1.KubernetesApplication) = xpworkloadv1alpha1.KubernetesApplication{
-								ObjectMeta: metav1.ObjectMeta{
-									Annotations: map[string]string{
-										annotationChartURL:   gitlabChartURL,
-										annotationGitlabHash: hash(newGitLabBuilder().build(), defaultValues(newGitLabBuilder().build())),
+							switch o := obj.(type) {
+							case *xpworkloadv1alpha1.KubernetesApplication:
+								*o = xpworkloadv1alpha1.KubernetesApplication{
+									ObjectMeta: metav1.ObjectMeta{
+										Annotations: map[string]string{
+											annotationChartURL:   gitlabChartURL,
+											annotationGitlabHash: hash(newGitLabBuilder().build(), defaultValues(newGitLabBuilder().build())),
+										},
 									},
-								},
+								}
+							case *xpworkloadv1alpha1.KubernetesApplicationResource:
+								*o = xpworkloadv1alpha1.KubernetesApplicationResource{
+									Status: xpworkloadv1alpha1.KubernetesApplicationResourceStatus{
+										Remote: &xpworkloadv1alpha1.RemoteStatus{
+											Raw: json.RawMessage(`{"availableReplicas": 1}`),
+										},
+									},
+								}
 							}
 							return nil
 						},
